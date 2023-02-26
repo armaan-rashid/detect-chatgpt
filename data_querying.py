@@ -1,4 +1,4 @@
-from google.cloud import bigquery
+# from google.cloud import bigquery
 import pandas as pd
 import transformers
 import random
@@ -57,22 +57,26 @@ def prompt_from_dataframe(data: pd.DataFrame, chatbot, outfile=None, retain_prom
     return data 
         
 
-def bigquery_load(sql, outfile):
-    """
-    Pass a SQL query to bigQuery, 
-    save results as JSON in outfile.
-    """
-    client = bigquery.Client()
-    df = client.query(sql).to_dataframe()
-    df.to_json(outfile)
-    print(f"Received {len(df)} examples from BigQuery.")
+# def bigquery_load(sql, outfile):
+#     """
+#     Pass a SQL query to bigQuery, 
+#     save results as JSON in outfile.
+#     """
+#     client = bigquery.Client()
+#     df = client.query(sql).to_dataframe()
+#     df.to_json(outfile)
+#     print(f"Received {len(df)} examples from BigQuery.")
 
 
 def xsum_generate(xsum: pd.DataFrame, tokens=30, prompt_msg=None):
     """
-    With an XSum dataset as DataFrame and,
+    With an XSum dataset as DataFrame,
     truncate the news articles in the file and prompt
     ChatGPT with prompt_count words, and a prompt_msg if desired.
+    This function is different than the functions for other datasets
+    because we're calling a tokenizer to cut off the prompt at 
+    the length specified by tokens, where as the other datasets have a natural 
+    notion of prompts.
 
     Caller can add a prompt_msg to the beginning of each prompt if 
     caller feels ChatGPT will generate a more appropriate response that way.
@@ -89,7 +93,7 @@ def xsum_generate(xsum: pd.DataFrame, tokens=30, prompt_msg=None):
     xsum = prompt_from_dataframe(xsum, init_ChatGPT(args.email, args.password, args.paid), args.destination, args.retain)
     return xsum
 
-def xsum_load(infile=None, num_examples=500, preprocess=process_spaces):
+def xsum_load(infile=None, outfile=None, num_examples=500, preprocess=process_spaces):
     """
     Download XSum from HuggingFace datasets hub, or from file.
     Sample num_examples from it.
@@ -100,10 +104,39 @@ def xsum_load(infile=None, num_examples=500, preprocess=process_spaces):
     xsum_dict = load_dataset('xsum')
     xsum = xsum_dict['train']
     articles = [preprocess(xsum[idx]['document']) for idx in random.sample(range(len(xsum)), num_examples)]
-    return pd.DataFrame(articles)
+    df = pd.DataFrame(articles)
+    if outfile:
+        df.to_csv(outfile, index=False)
+    return df
 
 
+def squad_generate(squad: pd.DataFrame):
+    """
+    Given a dataFrame of SQuAD q's, a's, contexts, prepare data
+    to feed in as prompts to ChatGPT!
+    """
+    squad['prompts'] = squad.apply(lambda row: row['contexts'] + '\n' + row['questions'], axis=1)
+    squad = prompt_from_dataframe(squad, init_ChatGPT(args.email, args.password, args.paid), args.destination, args.retain)
+    return squad
 
+
+def squad_load(infile=None, outfile=None, num_examples=500, preprocess=process_spaces):
+    """
+    Download SQuAD from HuggingFace hub, or from file.
+    Sample num_examples if downloading.
+    """
+    if infile:
+        return pd.read_csv(infile)
+    squad_dict = load_dataset('squad')
+    squad = squad_dict['train']
+    idxs = random.sample(range(len(squad)), num_examples)
+    contexts = [preprocess(squad[idx]['context']) for idx in idxs]
+    questions = [preprocess(squad[idx]['question']) for idx in idxs]
+    answers = [preprocess(squad[idx]['answers']['text']) for idx in idxs]
+    df = pd.DataFrame({'contexts': contexts, 'questions':questions, 'answers':answers})
+    if outfile:
+        df.to_csv(outfile, index=False)
+    return df
     
 
 if __name__ == '__main__':
