@@ -26,7 +26,7 @@ def prompt_ChatGPT(prompt: str, chatbot: Chatbot):
     return response
 
 
-def prompt_from_dataframe(data: pd.DataFrame, chatbot, verbose=False, outfile=None, retain_prompt=False):
+def prompt_from_dataframe(data: pd.DataFrame, chatbot, outfile=None, retain_prompt=False):
     """
     Given a dataframe with a 'prompts' column, query ChatGPT 
     to generate a response for every prompt and
@@ -41,7 +41,7 @@ def prompt_from_dataframe(data: pd.DataFrame, chatbot, verbose=False, outfile=No
         try: 
             response = prompt_ChatGPT(prompt, chatbot)
             responses.append(response)
-            if verbose:
+            if args.verbose:
                 print(f'response')
             count += 1
         except:
@@ -77,16 +77,16 @@ def xsum_generate(xsum: pd.DataFrame, tokens=30, prompt_msg=None):
     Caller can add a prompt_msg to the beginning of each prompt if 
     caller feels ChatGPT will generate a more appropriate response that way.
     """
-    tokenizer = transformers.PreTrainedTokenizer('gpt2-xl')
+    tokenizer = transformers.GPT2Tokenizer.from_pretrained('gpt2')
     tokenizer.pad_token_id = tokenizer.eos_token_id
-    tokenized = tokenizer(xsum['articles'], return_tensors="pt", padding=True).to(DEVICE)
+    tokenized = tokenizer(xsum['articles'].values.tolist(), return_tensors="pt", padding=True).to(DEVICE)
     tokenized = {key: value[:, :tokens] for key, value in tokenized.items()}
 
     prompts = tokenizer.batch_decode(tokenized['input_ids'], skip_special_tokens=True)
     xsum['prompts'] = prompts
     if prompt_msg:
         xsum['prompts'] = [prompt_msg + prompt for prompt in prompts]
-    xsum = prompt_from_dataframe(xsum, init_ChatGPT(args.email, args.password, args.plus), args.destination, args.retain)
+    xsum = prompt_from_dataframe(xsum, init_ChatGPT(args.email, args.password, args.paid), args.destination, args.retain)
     return xsum
 
 def xsum_load(infile=None, num_examples=500, preprocess=process_spaces):
@@ -114,7 +114,7 @@ if __name__ == '__main__':
     loader = argparser.add_mutually_exclusive_group(required=True)
     loader.add_argument('-l', '--load', help='if you need to also download your dataset from the Hub, specify this option')
     loader.add_argument('-f', '--file', help='csv file where dataset needs to be loaded from!')
-    argparser.add_argument('--plus', action='store_true', help='specify option if you have ChatGPT Plus', default=False)
+    argparser.add_argument('-p', '--paid', action='store_true', help='specify option if you have ChatGPT Plus', default=False)
     argparser.add_argument('-m', '--msg', help='prompt before \'actual\' dataset prompt to give ChatGPT, if that may \
                                                 help ChatGPT give a better response')
     argparser.add_argument('-r', '--retain', action='store_true', help='If this option is specified, write both prompt \
@@ -124,7 +124,7 @@ if __name__ == '__main__':
     argparser.add_argument('-t', '--tokens', help='Specify number of tokens for creating prompts, when this is ambiguous for a dataset (like xsum ), otherwise ignored',
                             default=30)
     argparser.add_argument('-n', '--num_examples', help='Number of examples to grab when downloading a dataset, ignored otherwise.', default=500)
-
+    argparser.add_argument('-v', '--verbose', action='store_true', help='Print ChatGPT\'s responses as it\'s being queried.')
     args = argparser.parse_args()
 
     if args.dataset == 'xsum':
