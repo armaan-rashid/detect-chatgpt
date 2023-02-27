@@ -26,7 +26,7 @@ def prompt_ChatGPT(prompt: str, chatbot: Chatbot):
     return response
 
 
-def prompt_from_dataframe(data: pd.DataFrame, chatbot, outfile=None, retain_prompt=False):
+def prompt_from_dataframe(data: pd.DataFrame, chatbot: Chatbot):
     """
     Given a dataframe with a 'prompts' column, query ChatGPT 
     to generate a response for every prompt and
@@ -36,24 +36,28 @@ def prompt_from_dataframe(data: pd.DataFrame, chatbot, outfile=None, retain_prom
     querying if verbose is True.
     """
     count = 0
+    fail = 0
     responses = []
     for prompt in data['prompts']:
         try: 
             response = prompt_ChatGPT(prompt, chatbot)
             responses.append(response)
             if args.verbose:
-                print(f'response')
+                print(f'{prompt}:{response}')
             count += 1
+            chatbot.reset_chat()
         except:
             print(f'The prompt: {prompt} did not successfully get a response from ChatGPT.\n')
             responses.append('Failed response.')
+            fail += 1
             continue
     data['responses'] = responses   # add responses to the DF
-    if outfile:
-        if retain_prompt:
-            data.to_csv(outfile, index=False)
+    if args.destination:
+        if args.retain:
+            data['prompts', 'responses'].to_csv(args.destination, index=False)
         else:
-            data['responses'].to_csv(outfile, index=False)
+            data['responses'].to_csv(args.destination, index=False)
+    print(f'Successfully got {count} responses from ChatGPT, failed to get {fail} responses.')
     return data 
         
 
@@ -90,7 +94,7 @@ def xsum_generate(xsum: pd.DataFrame, tokens=30, prompt_msg=None):
     xsum['prompts'] = prompts
     if prompt_msg:
         xsum['prompts'] = [prompt_msg + prompt for prompt in prompts]
-    xsum = prompt_from_dataframe(xsum, init_ChatGPT(args.email, args.password, args.paid), args.destination, args.retain)
+    xsum = prompt_from_dataframe(xsum, init_ChatGPT(args.email, args.password, args.paid))
     return xsum
 
 def xsum_load(infile=None, outfile=None, num_examples=500, preprocess=process_spaces):
@@ -116,7 +120,7 @@ def squad_generate(squad: pd.DataFrame):
     to feed in as prompts to ChatGPT!
     """
     squad['prompts'] = squad.apply(lambda row: row['contexts'] + '\n' + row['questions'], axis=1)
-    squad = prompt_from_dataframe(squad, init_ChatGPT(args.email, args.password, args.paid), args.destination, args.retain)
+    squad = prompt_from_dataframe(squad, init_ChatGPT(args.email, args.password, args.paid))
     return squad
 
 
@@ -152,11 +156,11 @@ if __name__ == '__main__':
                                                 help ChatGPT give a better response')
     argparser.add_argument('-r', '--retain', action='store_true', help='If this option is specified, write both prompt \
                                                                         and response together, separated by a space, in file/output.')
-    argparser.add_argument('-d', '--destination', action='store', nargs='?', help='Destination file to write prompts/responses. \
-                                                                                   Ignored if files are given.')
+    argparser.add_argument('-o', '--outfile', help='If --load is specified, this is where load will store the human language data.')
+    argparser.add_argument('-d', '--destination', action='store', nargs='?', help='Destination file to write prompts AND responses.')
     argparser.add_argument('-t', '--tokens', help='Specify number of tokens for creating prompts, when this is ambiguous for a dataset (like xsum ), otherwise ignored',
-                            default=30)
-    argparser.add_argument('-n', '--num_examples', help='Number of examples to grab when downloading a dataset, ignored otherwise.', default=500)
+                            default=30, type=int)
+    argparser.add_argument('-n', '--num_examples', help='Number of examples to grab when downloading a dataset, ignored otherwise.', type=int, default=500)
     argparser.add_argument('-v', '--verbose', action='store_true', help='Print ChatGPT\'s responses as it\'s being queried.')
     args = argparser.parse_args()
 
@@ -167,3 +171,9 @@ if __name__ == '__main__':
             xsum = xsum_load(infile=args.file)
         xsum_with_responses = xsum_generate(xsum, args.tokens, args.msg)
 
+    if args.dataset == 'squad':
+        if args.load:
+            squad = squad_load(outfile = args.outfile, num_examples=args.num_examples)
+        else:
+            squad = squad_load(infile=args.file)
+        squad_with_responses = squad_generate(squad)
