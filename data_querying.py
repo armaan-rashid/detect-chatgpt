@@ -9,6 +9,8 @@ from argparse import ArgumentParser
 from revChatGPT.V1 import Chatbot
 
 DEVICE = 'cuda' if cuda.is_available() else 'cpu'
+FAILSTRING = 'Failed response.'
+
 
 def init_ChatGPT(email, password, paid=False):
     chatbot = Chatbot(config={
@@ -24,6 +26,35 @@ def prompt_ChatGPT(prompt: str, chatbot: Chatbot):
     for data in chatbot.ask(prompt):
         response = data['message']
     return response
+
+
+def repair_dataframe(data: pd.DataFrame, chatbot: Chatbot):
+    """
+    Repair dataframe that has incomplete responses from ChatGPT.
+    Assumes the df has both a 'prompts' and 'responses' column.
+    """
+    fail = 0
+    count = 0
+    for _, row in data.iterrows():
+        if row['responses'] == FAILSTRING:
+            try: 
+                prompt = row['prompts']
+                response = prompt_ChatGPT(prompt, chatbot)
+                row['responses'] = response
+                if args.verbose:
+                    print(f'{prompt}:{response}')
+                count += 1
+                chatbot.reset_chat()
+                chatbot.clear_conversations()
+            except:
+                print(f'The prompt: {prompt} did not successfully get a response from ChatGPT.\n')
+                fail += 1
+                continue
+    print(f'Successfully got {count} responses from ChatGPT, failed to get {fail} responses.')
+    return data
+
+
+
 
 
 def prompt_from_dataframe(data: pd.DataFrame, chatbot: Chatbot):
@@ -131,13 +162,13 @@ def squad_load(infile=None, outfile=None, num_examples=500, preprocess=process_s
     """
     if infile:
         return pd.read_csv(infile)
-    squad_dict = load_dataset('squad')
+    squad_dict = load_dataset("squad")
     squad = squad_dict['train']
     idxs = random.sample(range(len(squad)), num_examples)
     contexts = [preprocess(squad[idx]['context']) for idx in idxs]
     questions = [preprocess(squad[idx]['question']) for idx in idxs]
     answers = [preprocess(squad[idx]['answers']['text']) for idx in idxs]
-    df = pd.DataFrame({'contexts': contexts, 'questions':questions, 'answers':answers})
+    df = pd.DataFrame({'contexts': contexts, 'questions': questions, 'answers': answers})
     if outfile:
         df.to_csv(outfile, index=False)
     return df
@@ -147,9 +178,9 @@ if __name__ == '__main__':
     argparser = ArgumentParser(prog='ChatGPT Scraper', description='Generate tokens and responses from ChatGPT using unofficial API.')
     argparser.add_argument('email', help='openAI login')
     argparser.add_argument('password', help='openAI login')
-    argparser.add_argument('dataset', help="Specify which dataset you want to generate ChatGPT examples for.", choices=['xsum', 'pubmed', 'squad'])
+    argparser.add_argument('dataset', help="Specify which dataset you want to generate ChatGPT examples for.", choices=['xsum', 'pubmed', 'squad', 'repair'])
     loader = argparser.add_mutually_exclusive_group(required=True)
-    loader.add_argument('-l', '--load', help='if you need to also download your dataset from the Hub, specify this option')
+    loader.add_argument('-l', '--load', action='store_true', help='if you need to also download your dataset from the Hub, specify this option')
     loader.add_argument('-f', '--file', help='csv file where dataset needs to be loaded from!')
     argparser.add_argument('-p', '--paid', action='store_true', help='specify option if you have ChatGPT Plus', default=False)
     argparser.add_argument('-m', '--msg', help='prompt before \'actual\' dataset prompt to give ChatGPT, if that may \
@@ -164,6 +195,11 @@ if __name__ == '__main__':
     argparser.add_argument('-v', '--verbose', action='store_true', help='Print ChatGPT\'s responses as it\'s being queried.')
     args = argparser.parse_args()
 
+    if args.dataset == 'repair':
+        broken = pd.read_csv(args.file)
+        fixed = repair_dataframe(broken, init_ChatGPT(args.email, args.password, args.paid))
+        fixed.to_csv(args.file, index=False)
+
     if args.dataset == 'xsum':
         if args.load:
             xsum = xsum_load(num_examples=args.num_examples)
@@ -173,7 +209,7 @@ if __name__ == '__main__':
 
     if args.dataset == 'squad':
         if args.load:
-            squad = squad_load(outfile = args.outfile, num_examples=args.num_examples)
+            squad = squad_load(outfile=args.outfile, num_examples=args.num_examples)
         else:
             squad = squad_load(infile=args.file)
         squad_with_responses = squad_generate(squad)
