@@ -1,11 +1,50 @@
+"""
+Evaluate model predictions and plot results.
+
+"""
+
+
 import matplotlib.pyplot as plt
+from sklearn.metrics import roc_curve, precision_recall_curve, auc
+
 
 COLORS = ["#0072B2", "#009E73", "#D55E00", "#CC79A7", "#F0E442",
             "#56B4E9", "#E69F00", "#000000", "#0072B2", "#009E73",
             "#D55E00", "#CC79A7", "#F0E442", "#56B4E9", "#E69F00"]
 
+def get_roc_metrics(real_preds, sample_preds):
+    """
+    DESC: Calculates an evaluation metric known as area under the Receiver Operating Curve,
+    i.e. AUROC. Intuitively, this metric measures the probability that given a random 
+    human and a random chatGPT example, the model correctly guesses which is which.
+    PARAMS: 
+    real_preds, sample_preds: list of predictions (0 for human, 1 for chatGPT) over candidate passages
+    RETURNS:
+    a tuple:
+        false_pos_rates: list of rates of false positives given different thresholds of number of pred. examples
+        true_pos_rates: same as false_pos_rates, but with true positives
+        AUROC: float with AUROC probability score
+    """
+    true_labels = [0] * len(real_preds) + [1] * len(sample_preds)
+    false_pos_rates, true_pos_rates, _ = roc_curve(true_labels, real_preds + sample_preds)
+    roc_auc = auc(false_pos_rates, true_pos_rates)
+    return false_pos_rates.tolist(), true_pos_rates.tolist(), float(roc_auc)
+
+def get_precision_recall_metrics(real_preds, sample_preds):
+    """
+    DESC: 
+    """
+    true_labels = [0] * len(real_preds) + [1] * len(sample_preds)
+    precision, recall, _ = precision_recall_curve(true_labels, real_preds + sample_preds)
+    pr_auc = auc(recall, precision)
+    return precision.tolist(), recall.tolist(), float(pr_auc)
+
+
 
 def save_roc_curves(experiments, detection_model_names, save_dir):
+    """
+    DESC: Graph ROC curves for each experiment. Save them to save_dir.
+    """
     # first, clear plt
     plt.clf()
 
@@ -24,6 +63,9 @@ def save_roc_curves(experiments, detection_model_names, save_dir):
     plt.savefig(f"{save_dir}/roc_curves.png")
 
 def save_ll_histograms(experiments, save_dir):
+    """
+
+    """
     # first, clear plt
     plt.clf()
 

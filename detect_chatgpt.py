@@ -10,25 +10,33 @@ Optional:
 - understand: replace_masks, extract_fills, apply_extracted_fills, perturb_texts_
 """
 
+from argparse import ArgumentParser
 import transformers
 import functools
 import re
-
-import detect_gpt
+from torch import cuda
+import numpy as np
+from datetime import time
+import tqdm
+from query_probabilities import get_ll, get_lls, get_precision_recall_metrics, get_roc_metrics
+from evaluation import save_roc_curves, save_ll_histograms, save_llr_histograms
+from data_processing import load_data
 
 DEVICE = 'cuda' if cuda.is_available() else 'cpu'
 mask_pattern = re.compile(r"<extra_id_\d+>")
-mask_filling_model_name = "t5-3b"
+MASK_FILLING_MODEL = "t5-3b"    # use for all experiments
 
-# DESC: loads and returns mask model. 
-# CALLED BY: get_perturbation_results
 def load_mask_model():
-    mask_model = transformers.AutoModelForSeq2SeqLM.from_pretrained(mask_filling_model_name) # can be cached. 
+    """
+    DESC: loads and returns mask model. 
+    CALLED BY: get_perturbation_results
+    """
+    mask_model = transformers.AutoModelForSeq2SeqLM.from_pretrained(MASK_FILLING_MODEL) # can be cached. 
     try:
         n_positions = mask_model.config.n_positions
     except AttributeError:
         n_positions = 512
-    mask_tokenizer = transformers.AutoTokenizer.from_pretrained(mask_filling_model_name, model_max_length=n_positions)
+    mask_tokenizer = transformers.AutoTokenizer.from_pretrained(MASK_FILLING_MODEL, model_max_length=n_positions)
     
     print('MOVING MASK MODEL TO GPU...', end='', flush=True)
     start = time.time()
@@ -37,16 +45,18 @@ def load_mask_model():
 
     return mask_model, mask_tokenizer
 
-# DESC: masks portions of a given text. 
-# RETURNS: the text, with randomly chosen word sequences masked with "<extra_id_0>" instead, where the last 
-# number increments for each masked sequence
-# CALLED BY: perturb_texts_
-# PARAMS: 
-# span_length: the number of words in a "span", i.e. a single masked sequence
-# pct: the percent of text that should be perturbed (percentage of words)
-# ceil_pct: round number of masked sequences up if true, down if false. 
-# buffer_size: the number of unmasked words that must be between each masked sequence
 def tokenize_and_mask(text, span_length, pct, ceil_pct=False, buffer_size=1):
+    """
+    DESC: masks portions of a given text. 
+    RETURNS: the text, with randomly chosen word sequences masked with "<extra_id_0>" instead, where the last 
+    number increments for each masked sequence
+    CALLED BY: perturb_texts_
+    PARAMS: 
+    span_length: the number of words in a "span", i.e. a single masked sequence
+    pct: the percent of text that should be perturbed (percentage of words)
+    ceil_pct: round number of masked sequences up if true, down if false. 
+    buffer_size: the number of unmasked words that must be between each masked sequence
+    """
     tokens = text.split(' ')
     mask_string = '<<<mask>>>'
 
@@ -78,21 +88,25 @@ def tokenize_and_mask(text, span_length, pct, ceil_pct=False, buffer_size=1):
     text = ' '.join(tokens)
     return text
 
-# DESC: counts the number of masks in each text in texts.  
-# RETURNS: an array of numbers, each of which is the number of masks for the corresponding text in texts
-# CALLED BY: replace_masks
-# PARAMS: 
-# texts: an array of texts. 
+
 def count_masks(texts):
+    """
+    DESC: counts the number of masks in each text in texts.  
+    RETURNS: an array of numbers, each of which is the number of masks for the corresponding text in texts
+    CALLED BY: replace_masks
+    PARAMS: 
+    texts: an array of texts. 
+    """
     return [len([x for x in text.split() if x.startswith("<extra_id_")]) for text in texts]
 
-# !!!RELIES ON MASK_MODEL AND MASK_TOKENIZER AS GLOBAL VARIABLE!!!
-# DESC: return a sample from T5 mask_model for each masked span
-# CALLED BY: perturb_texts_
-# PARAMS: 
-# texts: an array of texts
-# TODO unchecked function
-def replace_masks(texts):
+
+def replace_masks(texts, mask_model, mask_tokenizer):
+    """
+    DESC: return a sample from T5 mask_model for each masked span
+    CALLED BY: perturb_texts_
+    PARAMS: 
+    texts: an array of texts
+    """
     n_expected = count_masks(texts) # number of masks in texts
     stop_id = mask_tokenizer.encode(f"<extra_id_{max(n_expected)}>")[0] # the integer id corresponding to the masking string's token
     tokens = mask_tokenizer(texts, return_tensors="pt", padding=True).to(DEVICE) # tokenize the texts
@@ -101,10 +115,13 @@ def replace_masks(texts):
     # END unchecked function
     return mask_tokenizer.batch_decode(outputs, skip_special_tokens=False) # convert tokenized texts (list of integer ids) back to text strings
 
-# DESC: return the text without the mask tokens
-# CALLED BY: perturb_texts_
-# TODO unchecked function
+
 def extract_fills(texts):
+    """
+    DESC: return the text without the mask tokens
+    CALLED BY: perturb_texts_
+    TODO unchecked function
+    """
     # remove <pad> from beginning of each text
     texts = [x.replace("<pad>", "").replace("</s>", "").strip() for x in texts]
 
@@ -117,10 +134,13 @@ def extract_fills(texts):
     return extracted_fills
 
 
-# DESC: insert the generated text into the pre-existing text 
-# CALLED BY: perturb_texts_
-# TODO unchecked function
+
 def apply_extracted_fills(masked_texts, extracted_fills):
+    """
+    DESC: insert the generated text into the pre-existing text 
+    CALLED BY: perturb_texts_
+    TODO unchecked function
+    """
     # split masked text into tokens, only splitting on spaces (not newlines)
     tokens = [x.split(' ') for x in masked_texts]
 
@@ -138,10 +158,13 @@ def apply_extracted_fills(masked_texts, extracted_fills):
     texts = [" ".join(x) for x in tokens]
     return texts
 
-# DESC: helper function for perturb_texts
-# CALLED BY: perturb_texts
-# TODO unchecked function
+
 def perturb_texts_(texts, span_length, pct, ceil_pct=False):
+    """
+    DESC: helper function for perturb_texts
+    CALLED BY: perturb_texts
+    TODO unchecked function
+    """
     masked_texts = [tokenize_and_mask(x, span_length, pct, ceil_pct) for x in texts]
     # START unchecked function
     raw_fills = replace_masks(masked_texts)
@@ -193,24 +216,31 @@ def perturb_texts_(texts, span_length, pct, ceil_pct=False):
     # END unchecked function
     return perturbed_texts
 
-# DESC: perturbs the texts. 
-# CALLED BY: get_perturbation_results
-# PARAMS: 
-# texts: array of texts to perturb
-# span_length: to pass into helper perturb_texts_
-# pct: to pass into helper perturb_texts_
-# ceil_pct: to pass into helper perturb_texts_
-# chunk_size: the number of texts to pass into helper perturb_texts_ each call
+
 def perturb_texts(texts, span_length, pct, ceil_pct=False, chunk_size=20):
+    """
+    DESC: perturbs the texts. 
+    CALLED BY: get_perturbation_results
+    PARAMS: 
+    texts: array of texts to perturb
+    span_length: to pass into helper perturb_texts_
+    pct: to pass into helper perturb_texts_
+    ceil_pct: to pass into helper perturb_texts_
+    chunk_size: the number of texts to pass into helper perturb_texts_ each call
+    """
     outputs = []
     for i in tqdm.tqdm(range(0, len(texts), chunk_size), desc="Applying perturbations"):
         outputs.extend(perturb_texts_(texts[i:i + chunk_size], span_length, pct, ceil_pct=ceil_pct))
     return outputs
 
 
-# TODO: unchecked function. 
-# DESC: return likelihoods from perturbed samples
-def get_perturbation_results(data, pct_words_masked=0.3, span_length=2, n_perturbations=1, n_samples=500):
+
+def get_perturbation_results(data, pct_words_masked=0.3, span_length=2, n_perturbations=1, n_samples=500,
+                             n_perturbation_rounds=2):
+    """
+    TODO: unchecked function. 
+    DESC: return likelihoods from perturbed samples
+    """
     mask_model, mask_tokenizer = load_mask_model()
 
     torch.manual_seed(0)
@@ -259,18 +289,75 @@ def get_perturbation_results(data, pct_words_masked=0.3, span_length=2, n_pertur
     return results
     # END unchecked function
 
+def run_perturbation_experiment(results, criterion, span_length=10, pct_words_masked=0.15, n_perturbations=1, n_samples=500):
+    # compute diffs with perturbed
+    predictions = {'real': [], 'samples': []}
+    for res in results:
+        if criterion == 'd':
+            predictions['real'].append(res['original_ll'] - res['perturbed_original_ll'])
+            predictions['samples'].append(res['sampled_ll'] - res['perturbed_sampled_ll'])
+        elif criterion == 'z':
+            if res['perturbed_original_ll_std'] == 0:
+                res['perturbed_original_ll_std'] = 1
+                print("WARNING: std of perturbed original is 0, setting to 1")
+                print(f"Number of unique perturbed original texts: {len(set(res['perturbed_original']))}")
+                print(f"Original text: {res['original']}")
+            if res['perturbed_sampled_ll_std'] == 0:
+                res['perturbed_sampled_ll_std'] = 1
+                print("WARNING: std of perturbed sampled is 0, setting to 1")
+                print(f"Number of unique perturbed sampled texts: {len(set(res['perturbed_sampled']))}")
+                print(f"Sampled text: {res['sampled']}")
+            predictions['real'].append((res['original_ll'] - res['perturbed_original_ll']) / res['perturbed_original_ll_std'])
+            predictions['samples'].append((res['sampled_ll'] - res['perturbed_sampled_ll']) / res['perturbed_sampled_ll_std'])
 
+    fpr, tpr, roc_auc = get_roc_metrics(predictions['real'], predictions['samples'])
+    p, r, pr_auc = get_precision_recall_metrics(predictions['real'], predictions['samples'])
+    name = f'perturbation_{n_perturbations}_{criterion}'
+    print(f"{name} ROC AUC: {roc_auc}, PR AUC: {pr_auc}")
+    return {
+        'name': name,
+        'predictions': predictions,
+        'info': {
+            'pct_words_masked': pct_words_masked,
+            'span_length': span_length,
+            'n_perturbations': n_perturbations,
+            'n_samples': n_samples,
+        },
+        'raw_results': results,
+        'metrics': {
+            'roc_auc': roc_auc,
+            'fpr': fpr,
+            'tpr': tpr,
+        },
+        'pr_metrics': {
+            'pr_auc': pr_auc,
+            'precision': p,
+            'recall': r,
+        },
+        'loss': 1 - pr_auc,
+    }
 
 if __name__ == '__main__':
-    
-    data = "" # TODO 
+    parser = ArgumentParser(prog='run detectChatGPT')
+    parser.add_argument('--datafiles', help='datafiles with chatGPT samples and human samples to run exp on', nargs='+')
+    parser.add_argument('--query_models', help='list of models to be used for probability querying', nargs='+')
+    perturb_options = parser.add_argument_group()
+    perturb_options.add_argument('-n', '--n_perturbations', help='number of perturbations to perform in experiments')
+    perturb_options.add_argument('-s', '--span_length', help='span of tokens to mask in candidate passages')
+    perturb_options.add_argument('-p', '--perturb_pct', help='percentage of each passage to perturb')
+
+
+    args = parser.parse_args()
+
+
+    data = load_data(args.datafiles)
     perturbation_results = get_perturbation_results(data)
 
     # START unchecked code
     for perturbation_mode in ['d', 'z']:
-    output = run_perturbation_experiment(
+        output = run_perturbation_experiment(
         perturbation_results, perturbation_mode, span_length=args.span_length, n_perturbations=n_perturbations, n_samples=n_samples)
-    outputs.append(output)
-    with open(os.path.join(SAVE_FOLDER, f"perturbation_{n_perturbations}_{perturbation_mode}_results.json"), "w") as f:
-        json.dump(output, f)
+        outputs.append(output)
+        with open(os.path.join(SAVE_FOLDER, f"perturbation_{n_perturbations}_{perturbation_mode}_results.json"), "w") as f:
+            json.dump(output, f)
     # END unchecked code
