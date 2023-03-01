@@ -16,18 +16,24 @@ import functools
 import detect_gpt
 
 DEVICE = 'cuda' if cuda.is_available() else 'cpu'
+mask_filling_model_name = "t5-3b"
 
 # DESC: loads and returns mask model. 
 # CALLED BY: get_perturbation_results
 def load_mask_model():
-    mask_model = transformers.AutoModelForSeq2SeqLM.from_pretrained("t5-3b") # can be cached. 
-  
+    mask_model = transformers.AutoModelForSeq2SeqLM.from_pretrained(mask_filling_model_name) # can be cached. 
+    try:
+        n_positions = mask_model.config.n_positions
+    except AttributeError:
+        n_positions = 512
+    mask_tokenizer = transformers.AutoTokenizer.from_pretrained(mask_filling_model_name, model_max_length=n_positions)
+    
     print('MOVING MASK MODEL TO GPU...', end='', flush=True)
     start = time.time()
     mask_model.to(DEVICE)
     print(f'DONE ({time.time() - start:.2f}s)')
 
-    return mask_model
+    return mask_model, mask_tokenizer
 
 # DESC: masks portions of a given text. 
 # RETURNS: the text, with randomly chosen word sequences masked with "<extra_id_0>" instead, where the last 
@@ -70,16 +76,28 @@ def tokenize_and_mask(text, span_length, pct, ceil_pct=False, buffer_size=1):
     text = ' '.join(tokens)
     return text
 
+# DESC: counts the number of masks in each text in texts.  
+# RETURNS: an array of numbers, each of which is the number of masks for the corresponding text in texts
+# CALLED BY: replace_masks
+# PARAMS: 
+# texts: an array of texts. 
+def count_masks(texts):
+    return [len([x for x in text.split() if x.startswith("<extra_id_")]) for text in texts]
+
+# !!!RELIES ON MASK_MODEL AND MASK_TOKENIZER AS GLOBAL VARIABLE!!!
 # DESC: replace each masked span with a sample from T5 mask_model
 # CALLED BY: perturb_texts_
+# PARAMS: 
+# texts: an array of texts
 # TODO unchecked function
 def replace_masks(texts):
-    n_expected = count_masks(texts)
+    n_expected = count_masks(texts) # number of masks in texts
+    # START unchecked function
     stop_id = mask_tokenizer.encode(f"<extra_id_{max(n_expected)}>")[0]
     tokens = mask_tokenizer(texts, return_tensors="pt", padding=True).to(DEVICE)
     outputs = mask_model.generate(**tokens, max_length=150, do_sample=True, top_p=args.mask_top_p, num_return_sequences=1, eos_token_id=stop_id)
     return mask_tokenizer.batch_decode(outputs, skip_special_tokens=False)
-
+    # END unchecked function
 
 
 # DESC: helper function for perturb_texts
@@ -155,7 +173,7 @@ def perturb_texts(texts, span_length, pct, ceil_pct=False, chunk_size=20):
 # TODO: unchecked function. 
 # DESC: return likelihoods from perturbed samples
 def get_perturbation_results(data, pct_words_masked=0.3, span_length=2, n_perturbations=1, n_samples=500):
-    mask_model = load_mask_model()
+    mask_model, mask_tokenizer = load_mask_model()
 
     torch.manual_seed(0)
     np.random.seed(0)
