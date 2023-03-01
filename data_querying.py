@@ -21,10 +21,15 @@ def init_ChatGPT(email, password, paid=False):
     return chatbot
 
 
-def prompt_ChatGPT(prompt: str, chatbot: Chatbot):
+def prompt_ChatGPT(prompt: str, chatbot: Chatbot, min_words=250):
     response = ''
     for data in chatbot.ask(prompt):
         response = data['message']
+    while len(response) < min_words:
+        append = ''
+        for data in chatbot.ask('Please, keep going.'):
+            append = data['message']
+        response = response + ' ' + append
     return response
 
 
@@ -173,6 +178,10 @@ def squad_load(infile=None, outfile=None, num_examples=500, preprocess=process_s
         df.to_csv(outfile, index=False)
     return df
     
+def wp_load(outfile, num_examples=500, preprocess=process_spaces, *infiles):
+    if len(infiles) > 1:
+        pass
+
 
 if __name__ == '__main__':
     argparser = ArgumentParser(prog='ChatGPT Scraper', description='Generate tokens and responses from ChatGPT using unofficial API.')
@@ -181,7 +190,7 @@ if __name__ == '__main__':
     argparser.add_argument('dataset', help="Specify which dataset you want to generate ChatGPT examples for.", choices=['xsum', 'pubmed', 'squad', 'repair'])
     loader = argparser.add_mutually_exclusive_group(required=True)
     loader.add_argument('-l', '--load', action='store_true', help='if you need to also download your dataset from the Hub, specify this option')
-    loader.add_argument('-f', '--file', help='csv file where dataset needs to be loaded from!')
+    loader.add_argument('-f', '--file', nargs='+', help='csv file where dataset needs to be loaded from!')
     argparser.add_argument('-p', '--paid', action='store_true', help='specify option if you have ChatGPT Plus', default=False)
     argparser.add_argument('-m', '--msg', help='prompt before \'actual\' dataset prompt to give ChatGPT, if that may \
                                                 help ChatGPT give a better response')
