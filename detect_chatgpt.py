@@ -2,20 +2,22 @@
 Project model.
 
 TASKS: 
-1. correct+finish replace_masks
-2. correct+finish perturb_texts_
-3. correct+finish get_perturbation_results
-4. correct+finish main code
+1. correct+finish get_perturbation_results
+2. correct+finish main code, linking armaan's data gen and probability code (call armaan's data generating functions in main() script here, pass data into get_perturbation_results)
+3. ...theoretically things should run after that
 
-After: 
-- call armaan's data generating functions in main() script here, pass data into get_perturbation_results
+Optional: 
+- understand: replace_masks, extract_fills, apply_extracted_fills, perturb_texts_
 """
 
 import transformers
 import functools
+import re
+
 import detect_gpt
 
 DEVICE = 'cuda' if cuda.is_available() else 'cpu'
+mask_pattern = re.compile(r"<extra_id_\d+>")
 mask_filling_model_name = "t5-3b"
 
 # DESC: loads and returns mask model. 
@@ -85,20 +87,56 @@ def count_masks(texts):
     return [len([x for x in text.split() if x.startswith("<extra_id_")]) for text in texts]
 
 # !!!RELIES ON MASK_MODEL AND MASK_TOKENIZER AS GLOBAL VARIABLE!!!
-# DESC: replace each masked span with a sample from T5 mask_model
+# DESC: return a sample from T5 mask_model for each masked span
 # CALLED BY: perturb_texts_
 # PARAMS: 
 # texts: an array of texts
 # TODO unchecked function
 def replace_masks(texts):
     n_expected = count_masks(texts) # number of masks in texts
+    stop_id = mask_tokenizer.encode(f"<extra_id_{max(n_expected)}>")[0] # the integer id corresponding to the masking string's token
+    tokens = mask_tokenizer(texts, return_tensors="pt", padding=True).to(DEVICE) # tokenize the texts
     # START unchecked function
-    stop_id = mask_tokenizer.encode(f"<extra_id_{max(n_expected)}>")[0]
-    tokens = mask_tokenizer(texts, return_tensors="pt", padding=True).to(DEVICE)
-    outputs = mask_model.generate(**tokens, max_length=150, do_sample=True, top_p=args.mask_top_p, num_return_sequences=1, eos_token_id=stop_id)
-    return mask_tokenizer.batch_decode(outputs, skip_special_tokens=False)
+    outputs = mask_model.generate(**tokens, max_length=150, do_sample=True, top_p=1, num_return_sequences=1, eos_token_id=stop_id)
     # END unchecked function
+    return mask_tokenizer.batch_decode(outputs, skip_special_tokens=False) # convert tokenized texts (list of integer ids) back to text strings
 
+# DESC: return the text without the mask tokens
+# CALLED BY: perturb_texts_
+# TODO unchecked function
+def extract_fills(texts):
+    # remove <pad> from beginning of each text
+    texts = [x.replace("<pad>", "").replace("</s>", "").strip() for x in texts]
+
+    # return the text in between each matched mask token
+    extracted_fills = [mask_pattern.split(x)[1:-1] for x in texts]
+
+    # remove whitespace around each fill
+    extracted_fills = [[y.strip() for y in x] for x in extracted_fills]
+
+    return extracted_fills
+
+
+# DESC: insert the generated text into the pre-existing text 
+# CALLED BY: perturb_texts_
+# TODO unchecked function
+def apply_extracted_fills(masked_texts, extracted_fills):
+    # split masked text into tokens, only splitting on spaces (not newlines)
+    tokens = [x.split(' ') for x in masked_texts]
+
+    n_expected = count_masks(masked_texts)
+
+    # replace each mask token with the corresponding fill
+    for idx, (text, fills, n) in enumerate(zip(tokens, extracted_fills, n_expected)):
+        if len(fills) < n:
+            tokens[idx] = []
+        else:
+            for fill_idx in range(n):
+                text[text.index(f"<extra_id_{fill_idx}>")] = fills[fill_idx]
+
+    # join tokens back into text
+    texts = [" ".join(x) for x in tokens]
+    return texts
 
 # DESC: helper function for perturb_texts
 # CALLED BY: perturb_texts
@@ -184,9 +222,9 @@ def get_perturbation_results(data, pct_words_masked=0.3, span_length=2, n_pertur
 
     perturb_fn = functools.partial(perturb_texts, span_length=span_length, pct=pct_words_masked)
 
-    # START unchecked function
     p_sampled_text = perturb_fn([x for x in sampled_text for _ in range(n_perturbations)])
     p_original_text = perturb_fn([x for x in original_text for _ in range(n_perturbations)])
+    # START unchecked function
     for _ in range(n_perturbation_rounds - 1):
         try:
             p_sampled_text, p_original_text = perturb_fn(p_sampled_text), perturb_fn(p_original_text)
