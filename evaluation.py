@@ -1,9 +1,7 @@
 """
-Evaluate model predictions and plot results.
-
+Evaluate model predictions and plot results. Code adapted / refactored from
+Mitchell et al's detectGPT implementation.
 """
-
-
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve, precision_recall_curve, auc
 
@@ -32,7 +30,16 @@ def get_roc_metrics(real_preds, sample_preds):
 
 def get_precision_recall_metrics(real_preds, sample_preds):
     """
-    DESC: 
+    DESC: Calculate precision recall metric. Precision calculates number of accurate labels
+    in positive classification group, i.e. true pos / all labeled pos. Recall is number of
+    chatGPT ex's accurately labeled as such, i.e. true pos / (true pos + false neg).  
+    PARAMS: 
+    real_preds, sample_preds: list of predictions (0 for human, 1 for chatGPT) over candidate passages
+    RETURNS:
+    a tuple:
+        precision: a list of precisions over diff probability thresholds
+        recall: a list of recalls over diff probability thresholds
+        PRAUC: area under precision recall curve 
     """
     true_labels = [0] * len(real_preds) + [1] * len(sample_preds)
     precision, recall, _ = precision_recall_curve(true_labels, real_preds + sample_preds)
@@ -64,7 +71,7 @@ def save_roc_curves(experiments, detection_model_names, save_dir):
 
 def save_ll_histograms(experiments, save_dir):
     """
-
+    DESC: graph log likelihoods for perturbed vs. candidate examples, save to save_dir
     """
     # first, clear plt
     plt.clf()
@@ -92,6 +99,9 @@ def save_ll_histograms(experiments, save_dir):
 
 
 def save_llr_histograms(experiments, save_dir):
+    """
+    DESC: same as save_ll_histograms, but also plot log likelihood RATIOS 
+    """
     # first, clear plt
     plt.clf()
 

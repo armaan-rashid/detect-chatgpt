@@ -39,7 +39,6 @@ def repair_dataframe(data: pd.DataFrame, chatbot: Chatbot, verbose=False):
 
 
 
-
 def merge_human_sampled(original_file, original_cols, sampled_file, sampled_cols, outfile=None):
     """
     DESC: Given files of both original and sampled data,
@@ -74,32 +73,17 @@ def merge_human_sampled(original_file, original_cols, sampled_file, sampled_cols
 
 
 
-def load_data(filenames):
-    """
-    Load data from files into dict format.
-    Cols to be loaded in can be specified 
-    For compatibility with existing DetectGPT code.
-    Expects that the dfs loaded in has 'original, sampled'
-    columns and ignores other columns.
-    """
-    dfs = [pd.read_csv(filename) for filename in filenames]
-    for df in dfs:
-        assert 'original' in df.columns and 'sampled' in df.columns, 'files need to have original, sampled cols'
-    return [{'original': df['original'].values.tolist(),
-             'sampled': df['sampled'].values.tolist()} for df in dfs]
 
 
 if __name__=='__main__':
     parser = ArgumentParser(prog='process data already retrieved, in different ways')
-    parser.add_argument('task', help='what you want to do', choices=['merge', 'load', 'repair'])
+    parser.add_argument('task', help='what you want to do', choices=['merge', 'repair'])
     merge = parser.add_argument_group()
     merge.add_argument('--orig_file', help='file with human data')
     merge.add_argument('--orig_cols', help='cols to grab from orig_file')
     merge.add_argument('--sampled_file', help='file with ChatGPT data')
     merge.add_argument('--sampled_cols', help='cols to grab from data')
     merge.add_argument('--outfile', help='where to store new merged data')
-    load = parser.add_argument_group()
-    load.add_argument('--load_files', nargs='*', help='files to load in from')
     repair = parser.add_argument_group()
     repair.add_argument('--repair_file', nargs=1, help='file with data that needs to be repaired')
     repair.add_argument('--email', nargs=1, help='for ChatGPT login')
@@ -113,10 +97,6 @@ if __name__=='__main__':
         assert args.orig_file and args.sampled_file, 'need to have files to merge!'
         merged = merge_human_sampled(args.orig_file, args.orig_cols, args.sampled_file, args.sampled_cols, args.outfile)
     
-    elif args.task == 'load':
-        assert (files := args.load_files), 'need to have at least one file to load'
-        load_data(files)
-
 
     if args.dataset == 'repair':
         broken = pd.read_csv(args.repair_file)

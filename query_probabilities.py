@@ -56,6 +56,7 @@ def get_lls(texts, openai_model=None, base_tokenizer=None, base_model=None, batc
     texts: List[str] to be fed into get_ll
     openai_model, base_tokenizer, base_model: models for querying
     batch_size: if openai_model passed in, number of threads to use for querying at a time
+    RETURNS: a List of probabilities
     """
 
     if not openai_model:
