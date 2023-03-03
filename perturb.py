@@ -103,7 +103,7 @@ def extract_fills(texts):
 
 
 
-def apply_extracted_fills(masked_texts: list[str], extracted_fills):
+def apply_extracted_fills(masked_texts: list, extracted_fills):
     """
     DESC: insert the generated text into the pre-existing text 
     CALLED BY: perturb_texts_
