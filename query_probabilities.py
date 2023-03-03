@@ -31,8 +31,9 @@ def get_ll(text, openai_model=None, base_tokenizer=None, base_model=None, **open
     RETURNS: float of avg log likelihood of passage
     """
     if openai_model:        
+        global API_TOKEN_COUNTER
         r = openai.Completion.create(model=openai_model, prompt=f"<|endoftext|>{text}", **open_ai_opts)
-        tokens_used = r['usage']['total_tokens']
+        API_TOKEN_COUNTER += r['usage']['total_tokens']
         result = r['choices'][0]
         tokens, logprobs = result["logprobs"]["tokens"][1:], result["logprobs"]["token_logprobs"][1:]
 
@@ -66,4 +67,8 @@ def get_lls(texts, openai_model=None, base_tokenizer=None, base_model=None, batc
         pool = ThreadPool(batch_size)   # speed things up!
         return pool.map(get_ll, texts, **open_ai_opts)
 
-
+def count_tokens(reset=False):
+    if reset:
+        global API_TOKEN_COUNTER
+        API_TOKEN_COUNTER = 0
+    return API_TOKEN_COUNTER   # so other files can access the counter

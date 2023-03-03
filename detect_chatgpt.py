@@ -10,12 +10,11 @@ import torch
 import numpy as np
 from datetime import time
 import tqdm
-from query_probabilities import get_ll, get_lls
+import query_probabilities as qp
 import evaluation 
 import pandas as pd
 from perturb import generate_perturbations
 from matplotlib import pyplot as plt
-import os
 
 DEVICE = 'cuda' if cuda.is_available() else 'cpu'
 MASK_FILLING_MODEL = "t5-3b"    # use for all experiments
@@ -31,6 +30,7 @@ def load_data(filename):
     """
     df = pd.read_csv(filename)
     assert 'original' in df.columns and 'sampled' in df.columns, 'files need to have original and sampled cols'
+    print(f'Loading data from {filename}.')
     return {'original': df['original'].values.tolist(),
             'sampled': df['sampled'].values.tolist()}
 
@@ -59,7 +59,7 @@ def load_huggingface_model_and_tokenizer(model: str, dataset: str):
     TODO: make this work for multiple models!
     DESC: Load and return a huggingface model with model name.
     """
-    print(f'Loading BASE model {model}...')
+    print(f'Loading HF model {model}...')
     base_model_kwargs = {}
     if 'gpt-j' in model or 'neox' in model:
         base_model_kwargs.update(dict(torch_dtype=torch.float16))
@@ -121,7 +121,7 @@ def perturb_texts(data, mask_model, mask_tokenizer,
                 "perturbed_sampled": p_sampled_text[idx * n_perturbations: (idx + 1) * n_perturbations],
                 "perturbed_original": p_original_text[idx * n_perturbations: (idx + 1) * n_perturbations]} 
                 for idx in range(len(original_text))]
-
+    print(f'Created {n_perturbations * 2 * len(perturbed)} texts.')
     return perturbed
 
 
@@ -145,16 +145,19 @@ def query_lls(results, openai_model=None, openai_opts=None, base_tokenizer=None,
     """
 
     for res in tqdm.tqdm(results, desc="Computing log likelihoods"):
-        p_sampled_ll = get_lls(res["perturbed_sampled"], openai_model, base_tokenizer, base_model, open_ai_opts)
-        p_original_ll = get_lls(res["perturbed_original"], openai_model, base_tokenizer, base_model, open_ai_opts)
-        res["original_ll"] = get_ll(res["original"], openai_model, base_tokenizer, base_model, open_ai_opts)
-        res["sampled_ll"] = get_ll(res["sampled"], openai_model, base_tokenizer, base_model, open_ai_opts)
+        p_sampled_ll = qp.get_lls(res["perturbed_sampled"], openai_model, base_tokenizer, base_model, **open_ai_opts)
+        p_original_ll = qp.get_lls(res["perturbed_original"], openai_model, base_tokenizer, base_model, **open_ai_opts)
+        res["original_ll"] = qp.get_ll(res["original"], openai_model, base_tokenizer, base_model, **open_ai_opts)
+        res["sampled_ll"] = qp.get_ll(res["sampled"], openai_model, base_tokenizer, base_model, **open_ai_opts)
         res["all_perturbed_sampled_ll"] = p_sampled_ll
         res["all_perturbed_original_ll"] = p_original_ll
         res["perturbed_sampled_ll"] = np.mean(p_sampled_ll)
         res["perturbed_original_ll"] = np.mean(p_original_ll)
         res["perturbed_sampled_ll_std"] = np.std(p_sampled_ll) if len(p_sampled_ll) > 1 else 1
         res["perturbed_original_ll_std"] = np.std(p_original_ll) if len(p_original_ll) > 1 else 1
+
+    tokens_used = qp.count_tokens()
+    print(f'This query used {tokens_used} tokens.')
 
     return results
 
@@ -179,9 +182,11 @@ def run_perturbation_experiment(results, criterion, hyperparameters, dataset):
     predictions = {'real': [], 'samples': []}
     for res in results:
         if criterion == 'd':
+            print(f'Making predictions for difference criteria.')
             predictions['real'].append(res['original_ll'] - res['perturbed_original_ll'])
             predictions['samples'].append(res['sampled_ll'] - res['perturbed_sampled_ll'])
         elif criterion == 'z':
+            print(f'Making predictions for z-score criteria.')
             if res['perturbed_original_ll_std'] == 0:
                 res['perturbed_original_ll_std'] = 1
                 print("WARNING: std of perturbed original is 0, setting to 1")
@@ -261,7 +266,7 @@ if __name__ == '__main__':
     mask_tokenizer, mask_model = load_mask_model(MASK_FILLING_MODEL)
     perturbed = perturb_texts(data, mask_tokenizer, mask_model, **hyperparameters)
     if args.openai:
-        results = query_lls(perturbed, openai_model=args.query_model)
+        results = query_lls(perturbed, openai_model=args.query_model, openai_opts=open_ai_hyperparams)
     else: 
         hf_model, hf_tokenizer = load_huggingface_model_and_tokenizer(args.query_model, args.dataset)
         results = query_lls(perturbed, base_model=hf_model, base_tokenizer=hf_tokenizer)
