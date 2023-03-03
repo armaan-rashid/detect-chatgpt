@@ -15,6 +15,7 @@ import evaluation
 import pandas as pd
 from perturb import generate_perturbations
 from matplotlib import pyplot as plt
+import os
 
 DEVICE = 'cuda' if cuda.is_available() else 'cpu'
 MASK_FILLING_MODEL = "t5-3b"    # use for all experiments
@@ -228,7 +229,7 @@ if __name__ == '__main__':
     parser.add_argument('infile', help='csv file: where to read data from')
     parser.add_argument('query_model', help='model to be used for probability querying')
     parser.add_argument('-o', '--openai', action='store_true', help='specify if query model is an OpenAI model')
-    parser.add_argument('-d', '--directory', help='directory to save plots')
+    parser.add_argument('-d', '--directory', help='directory to save plots, should contain info abt query models and dataset')
 
     perturb_options = parser.add_argument_group()
     perturb_options.add_argument('-n', '--n_perturbations', help='number of perturbations to perform in experiments', type=int, default=25)
@@ -272,8 +273,15 @@ if __name__ == '__main__':
         results = query_lls(perturbed, base_model=hf_model, base_tokenizer=hf_tokenizer)
     experiments = [run_perturbation_experiment(results, criterion, hyperparameters) for criterion in ['z', 'd']]
 
-    # graph results
+    # graph results, making sure the directory exists
+    DIR = args.directory
+    if DIR and not os.path.exists(DIR):
+        os.makedirs(DIR)
+    # within DIR save inside a directory with hyperparameter information
+    save_dir = f'n={hyperparameters["n_perturbations"]}_s={hyperparameters["span_length"]}_p={hyperparameters["perturb_pct"]}'
+    if args.openai:
+        save_dir += f'_openai_temp={open_ai_hyperparams["temperature"]}_choices={open_ai_hyperparams["n"]}'
     plt.figure()
-    evaluation.save_roc_curves(experiments, args.query_model, args.directory)
-    evaluation.save_ll_histograms(experiments, args.directory)
-    evaluation.save_llr_histograms(experiments, args.directory)
+    evaluation.save_roc_curves(experiments, args.query_model, f'{DIR}/{save_dir}')
+    evaluation.save_ll_histograms(experiments, f'{DIR}/{save_dir}')
+    evaluation.save_llr_histograms(experiments, f'{DIR}/{save_dir}')

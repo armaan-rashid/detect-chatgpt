@@ -48,7 +48,7 @@ def get_precision_recall_metrics(real_preds, sample_preds):
 
 
 
-def save_roc_curves(experiments, query_model_names, save_dir):
+def save_roc_curves(experiments, query_model_name, save_dir):
     """
     DESC: Graph ROC curves for each experiment. Save them to save_dir.
     """
@@ -65,7 +65,7 @@ def save_roc_curves(experiments, query_model_names, save_dir):
     plt.ylim([0.0, 1.05])
     plt.xlabel('False Positive Rate')
     plt.ylabel('True Positive Rate')
-    plt.title(f'ROC Curves ({query_model_names} - T5-3B)')
+    plt.title(f'ROC Curves ({query_model_name} - T5-3B)')
     plt.legend(loc="lower right", fontsize=6)
     plt.show()
     if save_dir:
@@ -95,7 +95,8 @@ def save_ll_histograms(experiments, save_dir):
             plt.xlabel("log likelihood")
             plt.ylabel('count')
             plt.legend(loc='upper right')
-            plt.savefig(f"{save_dir}/ll_histograms_{experiment['name']}.png")
+            if save_dir:
+                plt.savefig(f"{save_dir}/ll_histograms_{experiment['name']}.png")
         except:
             pass
 
@@ -124,7 +125,8 @@ def save_llr_histograms(experiments, save_dir):
             plt.xlabel("log likelihood ratio")
             plt.ylabel('count')
             plt.legend(loc='upper right')
-            plt.savefig(f"{save_dir}/llr_histograms_{experiment['name']}.png")
+            if save_dir:
+                plt.savefig(f"{save_dir}/llr_histograms_{experiment['name']}.png")
         except:
             pass
 
