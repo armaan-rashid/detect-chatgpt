@@ -22,17 +22,29 @@ MASK_FILLING_MODEL = "t5-3b"    # use for all experiments
 manual_seed(0)
 np.random.seed(0)
 
-def load_data(filename):
+def load_data(filename, k=None):
     """
-    Load data from file into dict format.
+    Load k examples of data from file into dict format.
     Expects that the dfs loaded in has 'original, sampled'
     columns and ignores other columns.
     """
     df = pd.read_csv(filename)
     assert 'original' in df.columns and 'sampled' in df.columns, 'files need to have original and sampled cols'
     print(f'Loading data from {filename}.')
-    return {'original': df['original'].values.tolist(),
+    conv = {'original': df['original'].values.tolist(),
             'sampled': df['sampled'].values.tolist()}
+    if k is None:
+        k = len(conv['original'])
+    conv['original'] = conv['original'][:min(k, len(conv['original']))]
+    conv['sampled'] = conv['sampled'][:min(k, len(conv['sampled']))]
+    return conv
+
+def load_perturbed(filename, n):
+    """
+    Load perturbed examples from a file.
+    TODO: write this fn
+    """
+    pass
 
 
 def load_mask_model(mask_model_name):
@@ -228,6 +240,7 @@ if __name__ == '__main__':
     parser.add_argument('query_model', help='model to be used for probability querying')
     parser.add_argument('-o', '--openai', action='store_true', help='specify if query model is an OpenAI model')
     parser.add_argument('-d', '--directory', help='directory to save plots, should contain info abt query models and dataset')
+    parser.add_argument('-k', '--k_examples', help='load k examples from file', type=int)
 
     perturb_options = parser.add_argument_group()
     perturb_options.add_argument('-n', '--n_perturbations', help='number of perturbations to perform in experiments', type=int, default=25)
@@ -244,7 +257,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    data = load_data(args.infile)
+    data = load_data(args.infile, args.k_examples)
 
     hyperparameters = {
         'n_perturbations': args.n_perturbations,
@@ -264,6 +277,15 @@ if __name__ == '__main__':
     # core model pipeline: perturb, query probabilities, make predictions
     mask_tokenizer, mask_model = load_mask_model(MASK_FILLING_MODEL)
     perturbed = perturb_texts(data, mask_tokenizer, mask_model, **hyperparameters)
+
+    if args.writefile:  # write the perturbations if file specified
+        original_cols = [[p['original']] + p['perturbed_original'] for p in perturbed]
+        sampled_cols = [[p['sampled']] + p['perturbed_sampled'] for p in perturbed]
+        orig_dict = { f'o{i+1}' : col for i, col in enumerate(original_cols)}
+        sampled_dict = { f's{i+1}' : col for i, col in enumerate(sampled_cols)}
+        pd.DataFrame(data={**orig_dict, **sampled_dict}).to_csv(args.writefile)
+
+
     if args.openai:
         results = query_lls(perturbed, openai_model=args.query_model, openai_opts=open_ai_hyperparams)
     else: 

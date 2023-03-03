@@ -13,7 +13,7 @@ def tokenize_and_mask(text, span_length, pct, ceil_pct=False, buffer_size=1):
     DESC: masks portions of a given text. 
     RETURNS: the text, with randomly chosen word sequences masked with "<extra_id_i>" instead, where i 
     is the mask number 
-    CALLED BY: perturb_texts_
+    CALLED BY: generate_perturbations_
     PARAMS: 
     span_length: the number of words in a "span", i.e. a single masked sequence
     pct: the percent of text that should be perturbed (percentage of words)
@@ -66,7 +66,7 @@ def count_masks(texts):
 def replace_masks(masked_texts, mask_model: transformers.T5ForConditionalGeneration, mask_tokenizer: transformers.T5Tokenizer):
     """
     DESC: return a sample from T5 mask_model for each masked span
-    CALLED BY: perturb_texts_
+    CALLED BY: generate_perturbations_
     PARAMS: 
     texts: an array of already masked texts
     mask_model: masking model (i.e. T5-3B)
@@ -84,7 +84,7 @@ def replace_masks(masked_texts, mask_model: transformers.T5ForConditionalGenerat
 def extract_fills(texts):
     """
     DESC: return the text without the mask tokens
-    CALLED BY: perturb_texts_
+    CALLED BY: generate_perturbations_
     PARAMS:
     texts: List[str] of texts that have been filled without having the masked strings removed
     RETURNS:
@@ -106,7 +106,7 @@ def extract_fills(texts):
 def apply_extracted_fills(masked_texts: list, extracted_fills):
     """
     DESC: insert the generated text into the pre-existing text 
-    CALLED BY: perturb_texts_
+    CALLED BY: generate_perturbations_
     PARAMS:
     masked_texts: list of masked texts as strings
     extracted_fills: fill texts to place in the masks in each masked_text
@@ -166,16 +166,17 @@ def generate_perturbations_(texts, span_length, pct, mask_model, mask_tokenizer,
     return perturbed_texts
 
 
-def generate_perturbations(texts, span_length, pct, mask_model, mask_tokenizer, ceil_pct=False, chunk_size=20):
+def generate_perturbations(texts, span_length, pct, mask_model, mask_tokenizer, ceil_pct=False, chunk_size=10):
     """
-    DESC: tqdm/progress bar wrapper for perturb_texts_  
+    DESC: tqdm/progress bar wrapper for generate_perturbations_  
     CALLED BY: get_perturbation_results
     PARAMS: 
     texts: array of texts to perturb
-    span_length: to pass into helper perturb_texts_
-    pct: to pass into helper perturb_texts_
-    ceil_pct: to pass into helper perturb_texts_
-    chunk_size: the number of texts to pass into helper perturb_texts_ each call
+    span_length: to pass into helper generate_perturbations_
+    pct: to pass into helper generate_perturbations_
+    ceil_pct: to pass into helper generate_perturbations_
+    chunk_size: the number of texts to pass into helper generate_perturbations_ each call
+    RETURNS perturbed texts
     """
     outputs = []
     for i in tqdm.tqdm(range(0, len(texts), chunk_size), desc="Applying perturbations"):
