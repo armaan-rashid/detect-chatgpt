@@ -2,7 +2,6 @@ import numpy as np
 import tqdm
 import transformers
 import re
-import typing
 from torch import cuda
 
 DEVICE = 'cuda' if cuda.is_available() else 'cpu'
@@ -82,7 +81,7 @@ def replace_masks(masked_texts, mask_model: transformers.T5ForConditionalGenerat
     return mask_tokenizer.batch_decode(outputs, skip_special_tokens=False) # convert tokenized texts (list of integer ids) back to text strings
 
 
-def extract_fills(texts: list[str]):
+def extract_fills(texts):
     """
     DESC: return the text without the mask tokens
     CALLED BY: perturb_texts_
