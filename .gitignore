@@ -1,0 +1,9 @@
+Google Cloud BigQuery/**
+.vscode/**
+Azure/**
+.DS_Store
+Stack Overflow data/**
+*.zip
+__pycache__
+writingPrompts/**
+SQuAD/**
