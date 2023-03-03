@@ -80,7 +80,7 @@ def load_huggingface_model_and_tokenizer(model: str, dataset: str):
 
 
 def perturb_texts(data, mask_model, mask_tokenizer, 
-                  pct_words_masked=0.3, span_length=2, n_perturbations=1, n_perturbation_rounds=1):
+                  perturb_pct=0.3, span_length=2, n_perturbations=1, n_perturbation_rounds=1):
     """ 
     DESC: This function takes in the data and perturbs it according to options passed in.
     PARAMS:
@@ -101,7 +101,7 @@ def perturb_texts(data, mask_model, mask_tokenizer,
     original_text = data["original"]
     sampled_text = data["sampled"]
 
-    perturb_fn = functools.partial(generate_perturbations, span_length=span_length, pct=pct_words_masked,
+    perturb_fn = functools.partial(generate_perturbations, span_length=span_length, pct=perturb_pct,
                                    mask_model=mask_model, mask_tokenizer=mask_tokenizer)
 
     p_sampled_text = perturb_fn([x for x in sampled_text for _ in range(n_perturbations)])
