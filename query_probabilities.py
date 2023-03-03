@@ -6,7 +6,7 @@ TODO: Turn this file into implementation of querying multiple models, and
 training an NN to weight multiple models' query methods
 """
 
-
+import os
 import openai
 import numpy as np
 import torch
@@ -32,6 +32,7 @@ def get_ll(text, openai_model=None, base_tokenizer=None, base_model=None, **open
     """
     if openai_model:        
         global API_TOKEN_COUNTER
+        openai.api_key = os.getenv('OPENAI_API_KEY')
         r = openai.Completion.create(model=openai_model, prompt=f"<|endoftext|>{text}", **open_ai_opts)
         API_TOKEN_COUNTER += r['usage']['total_tokens']
         result = r['choices'][0]
