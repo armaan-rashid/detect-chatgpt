@@ -18,7 +18,7 @@ API_TOKEN_COUNTER = 0
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 GPT2_TOKENIZER = transformers.GPT2Tokenizer.from_pretrained('gpt2')
 
-def get_ll(text, openai_model=None, base_tokenizer=None, base_model=None):
+def get_ll(text, openai_model=None, base_tokenizer=None, base_model=None, **open_ai_opts):
     """
     TODO: edit this function to query multiple models
     DESC: The essence of detection: given a candidate text, puts the text
@@ -31,8 +31,8 @@ def get_ll(text, openai_model=None, base_tokenizer=None, base_model=None):
     RETURNS: float of avg log likelihood of passage
     """
     if openai_model:        
-        kwargs = { "engine": openai_model, "temperature": 0, "max_tokens": 0, "echo": True, "logprobs": 0}
-        r = openai.Completion.create(prompt=f"<|endoftext|>{text}", **kwargs)
+        r = openai.Completion.create(model=openai_model, prompt=f"<|endoftext|>{text}", **open_ai_opts)
+        tokens_used = r['usage']['total_tokens']
         result = r['choices'][0]
         tokens, logprobs = result["logprobs"]["tokens"][1:], result["logprobs"]["token_logprobs"][1:]
 
@@ -47,7 +47,7 @@ def get_ll(text, openai_model=None, base_tokenizer=None, base_model=None):
             return -base_model(**tokenized, labels=labels).loss.item()
 
 
-def get_lls(texts, openai_model=None, base_tokenizer=None, base_model=None, batch_size=50):
+def get_lls(texts, openai_model=None, base_tokenizer=None, base_model=None, batch_size=50, **open_ai_opts):
     """
     DESC: A wrapper for get_ll, that increments the OPENAI_API_TOKEN counter
     before getting the log-likelihood under the query models, if 
@@ -63,13 +63,7 @@ def get_lls(texts, openai_model=None, base_tokenizer=None, base_model=None, batc
         assert base_tokenizer and base_model, 'need tokenizer and model for ll calculation'
         return [get_ll(text, base_tokenizer=base_tokenizer, base_model=base_model) for text in texts]
     else:
-        global API_TOKEN_COUNTER
-
-        # use GPT2_TOKENIZER to get total number of tokens
-        total_tokens = sum(len(GPT2_TOKENIZER.encode(text)) for text in texts)
-        API_TOKEN_COUNTER += total_tokens * 2  # multiply by two because OpenAI double-counts echo_prompt tokens
-
         pool = ThreadPool(batch_size)   # speed things up!
-        return pool.map(get_ll, texts)
+        return pool.map(get_ll, texts, **open_ai_opts)
 
 

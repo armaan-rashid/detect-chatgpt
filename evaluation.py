@@ -48,7 +48,7 @@ def get_precision_recall_metrics(real_preds, sample_preds):
 
 
 
-def save_roc_curves(experiments, detection_model_names, save_dir):
+def save_roc_curves(experiments, query_model_names, save_dir):
     """
     DESC: Graph ROC curves for each experiment. Save them to save_dir.
     """
@@ -65,9 +65,11 @@ def save_roc_curves(experiments, detection_model_names, save_dir):
     plt.ylim([0.0, 1.05])
     plt.xlabel('False Positive Rate')
     plt.ylabel('True Positive Rate')
-    plt.title(f'ROC Curves ({detection_model_names} - T5-3B)')
+    plt.title(f'ROC Curves ({query_model_names} - T5-3B)')
     plt.legend(loc="lower right", fontsize=6)
-    plt.savefig(f"{save_dir}/roc_curves.png")
+    plt.show()
+    if save_dir:
+        plt.savefig(f"{save_dir}/roc_curves.png")
 
 def save_ll_histograms(experiments, save_dir):
     """

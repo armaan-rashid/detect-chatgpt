@@ -23,7 +23,7 @@ import transformers
 import random
 from datasets import load_dataset
 from torch import cuda
-from custom_datasets import process_spaces   # from Mitchell et al.'s official implementation
+from data_processing import process_spaces   # from Mitchell et al.'s official implementation
 from argparse import ArgumentParser
 from revChatGPT.V1 import Chatbot
 

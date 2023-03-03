@@ -6,6 +6,7 @@ from argparse import ArgumentParser
 import transformers
 import functools
 from torch import cuda, manual_seed
+import torch
 import numpy as np
 from datetime import time
 import tqdm
@@ -13,6 +14,8 @@ from query_probabilities import get_ll, get_lls
 import evaluation 
 import pandas as pd
 from perturb import generate_perturbations
+from matplotlib import pyplot as plt
+import os
 
 DEVICE = 'cuda' if cuda.is_available() else 'cpu'
 MASK_FILLING_MODEL = "t5-3b"    # use for all experiments
@@ -51,8 +54,31 @@ def load_mask_model(mask_model_name):
 
     return mask_model, mask_tokenizer
 
-def load_query_models(*models):
-    pass
+def load_huggingface_model_and_tokenizer(model: str, dataset: str):
+    """
+    TODO: make this work for multiple models!
+    DESC: Load and return a huggingface model with model name.
+    """
+    print(f'Loading BASE model {model}...')
+    base_model_kwargs = {}
+    if 'gpt-j' in model or 'neox' in model:
+        base_model_kwargs.update(dict(torch_dtype=torch.float16))
+    if 'gpt-j' in model:
+        base_model_kwargs.update(dict(revision='float16'))
+    base_model = transformers.AutoModelForCausalLM.from_pretrained(model, **base_model_kwargs)
+    optional_tok_kwargs = {}
+    if "facebook/opt-" in model:
+        print("Using non-fast tokenizer for OPT")
+        optional_tok_kwargs['fast'] = False
+    if dataset in ['pubmed']:
+        optional_tok_kwargs['padding_side'] = 'left'
+    base_tokenizer = transformers.AutoTokenizer.from_pretrained(model, **optional_tok_kwargs)
+    base_tokenizer.pad_token_id = base_tokenizer.eos_token_id
+
+    return base_model, base_tokenizer
+
+
+
 
 def perturb_texts(data, mask_model, mask_tokenizer, 
                   pct_words_masked=0.3, span_length=2, n_perturbations=1, n_perturbation_rounds=1):
@@ -99,14 +125,15 @@ def perturb_texts(data, mask_model, mask_tokenizer,
     return perturbed
 
 
-def query_lls(results, *models):
+def query_lls(results, openai_model=None, openai_opts=None, base_tokenizer=None, base_model=None):
     """
     TODO: make this function work for multiple query models.
     DESC: Given passages and their perturbed versions, query log likelihoods for all of them
     from the query models.
     PARAMS:
     results: a List[Dict] where each dict has original passage, sample passage, and perturbed versions of each
-    models: list of models for querying!
+    openai_model: name of openai model as str
+    base_tokenizer, base_model: if an HF model used for querying, the actual model and tokenizer
     RETURNS:
     results, but with additional keys in each dict as follows:
     {
@@ -118,10 +145,10 @@ def query_lls(results, *models):
     """
 
     for res in tqdm.tqdm(results, desc="Computing log likelihoods"):
-        p_sampled_ll = get_lls(res["perturbed_sampled"])
-        p_original_ll = get_lls(res["perturbed_original"])
-        res["original_ll"] = get_ll(res["original"])
-        res["sampled_ll"] = get_ll(res["sampled"])
+        p_sampled_ll = get_lls(res["perturbed_sampled"], openai_model, base_tokenizer, base_model, open_ai_opts)
+        p_original_ll = get_lls(res["perturbed_original"], openai_model, base_tokenizer, base_model, open_ai_opts)
+        res["original_ll"] = get_ll(res["original"], openai_model, base_tokenizer, base_model, open_ai_opts)
+        res["sampled_ll"] = get_ll(res["sampled"], openai_model, base_tokenizer, base_model, open_ai_opts)
         res["all_perturbed_sampled_ll"] = p_sampled_ll
         res["all_perturbed_original_ll"] = p_original_ll
         res["perturbed_sampled_ll"] = np.mean(p_sampled_ll)
@@ -132,7 +159,7 @@ def query_lls(results, *models):
     return results
 
 
-def run_perturbation_experiment(results, criterion, hyperparameters):
+def run_perturbation_experiment(results, criterion, hyperparameters, dataset):
     """
     DESC: Given results of perturbations + probabilities, make probabilistic classification predictions for
     each candidate passage and then evaluate them!
@@ -170,7 +197,7 @@ def run_perturbation_experiment(results, criterion, hyperparameters):
 
     fpr, tpr, roc_auc = evaluation.get_roc_metrics(predictions['real'], predictions['samples'])
     p, r, pr_auc = evaluation.get_precision_recall_metrics(predictions['real'], predictions['samples'])
-    name = f'wait a sec'
+    name = f'{dataset}_{"difference" if criterion == "d" else "z-score"}_{hyperparameters["n_perturbations"]}_{hyperparameters["perturb_pct"]}.'
     print(f"{name} ROC AUC: {roc_auc}, PR AUC: {pr_auc}")
     return {
         'name': name,
@@ -192,17 +219,28 @@ def run_perturbation_experiment(results, criterion, hyperparameters):
 
 if __name__ == '__main__':
     parser = ArgumentParser(prog='run detectChatGPT')
-    parser.add_argument('datafile', help='datafile with chatGPT samples and human samples to run exp on')
-    parser.add_argument('query_models', help='list of models to be used for probability querying', nargs='+')
+    parser.add_argument('dataset', help='name of dataset')
+    parser.add_argument('infile', help='csv file: where to read data from')
+    parser.add_argument('query_model', help='model to be used for probability querying')
+    parser.add_argument('-o', '--openai', action='store_true', help='specify if query model is an OpenAI model')
+    parser.add_argument('-d', '--directory', help='directory to save plots')
+
     perturb_options = parser.add_argument_group()
-    perturb_options.add_argument('-n', '--n_perturbations', help='number of perturbations to perform in experiments', default=25)
-    perturb_options.add_argument('-s', '--span_length', help='span of tokens to mask in candidate passages', default=2)
-    perturb_options.add_argument('-p', '--perturb_pct', help='percentage (as decimal) of each passage to perturb', default=0.15)
-    perturb_options.add_argument('-r', '--n_perturbation_rounds', help='number of times to attempt perturbations', default=1)
+    perturb_options.add_argument('-n', '--n_perturbations', help='number of perturbations to perform in experiments', type=int, default=25)
+    perturb_options.add_argument('-s', '--span_length', help='span of tokens to mask in candidate passages', type=int, default=2)
+    perturb_options.add_argument('-p', '--perturb_pct', help='percentage (as decimal) of each passage to perturb', type=float, default=0.15)
+    perturb_options.add_argument('-r', '--n_perturbation_rounds', help='number of times to attempt perturbations', type=int, default=1)
+    
+    open_ai_opts = parser.add_argument_group()
+    open_ai_opts.add_argument('-l', '--logprobs', help='how many tokens to include logprobs for', choices=[0,1,2,3,4,5], default=0)
+    open_ai_opts.add_argument('-e', '--echo', help='echo both prompt and completion', action='store_true')
+    open_ai_opts.add_argument('-m', '--max_tokens', help='max_tokens to be produced in a response', type=int, default=0)
+    open_ai_opts.add_argument('-t', '--temperature', help='randomness to use in generation', type=float, default=0.0)
+    open_ai_opts.add_argument('-c', '--completions', help='num completions to gen for each prompt', type=int, default=1)
 
     args = parser.parse_args()
 
-    data = load_data(args.datafile)
+    data = load_data(args.infile)
 
     hyperparameters = {
         'n_perturbations': args.n_perturbations,
@@ -211,7 +249,26 @@ if __name__ == '__main__':
         'n_perturbation_rounds': args.n_perturbation_rounds,
     }
 
-    perturbed = perturb_texts(data, **hyperparameters)
+    open_ai_hyperparams = {
+        'logprobs': args.logprobs,
+        'echo': args.echo,
+        'max_tokens': args.max_tokens,
+        'temperature': args.temperature,
+        'n': args.completions,
+    }
+
+    # core model pipeline: perturb, query probabilities, make predictions
     mask_tokenizer, mask_model = load_mask_model(MASK_FILLING_MODEL)
-    results = query_lls(perturbed, load_query_models(args.query_models))
-    experiments = [run_perturbation_experiment()]
+    perturbed = perturb_texts(data, mask_tokenizer, mask_model, **hyperparameters)
+    if args.openai:
+        results = query_lls(perturbed, openai_model=args.query_model)
+    else: 
+        hf_model, hf_tokenizer = load_huggingface_model_and_tokenizer(args.query_model, args.dataset)
+        results = query_lls(perturbed, base_model=hf_model, base_tokenizer=hf_tokenizer)
+    experiments = [run_perturbation_experiment(results, criterion, hyperparameters) for criterion in ['z', 'd']]
+
+    # graph results
+    plt.figure()
+    evaluation.save_roc_curves(experiments, args.query_model, args.directory)
+    evaluation.save_ll_histograms(experiments, args.directory)
+    evaluation.save_llr_histograms(experiments, args.directory)
