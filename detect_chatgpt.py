@@ -8,7 +8,6 @@ import functools
 from torch import cuda, manual_seed
 import torch
 import numpy as np
-from datetime import time
 import tqdm
 import query_probabilities as qp
 import evaluation 
@@ -49,9 +48,8 @@ def load_mask_model(mask_model_name):
     mask_tokenizer = transformers.AutoTokenizer.from_pretrained(mask_model_name, model_max_length=n_positions)
     
     print('MOVING MASK MODEL TO GPU...', end='', flush=True)
-    start = time.time()
     mask_model.to(DEVICE)
-    print(f'DONE ({time.time() - start:.2f}s)')
+    print('DONE')
 
     return mask_model, mask_tokenizer
 
