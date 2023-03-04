@@ -48,9 +48,10 @@ def load_perturbed(filename, n=0):
     k = len(perturbed.columns) // 2  # number of candidate passages
     n = min(n, len(perturbed) - 1) if n != 0 else len(perturbed) - 1
     perturbed = [{"original": perturbed[f'o{i}'][0], "sampled": perturbed[f's{i}'][0],
-                "perturbed_sampled": perturbed[f's{i}'][1:n+1],
-                "perturbed_original": perturbed[f'o{i}'][1:n+1]} 
+                "perturbed_sampled": perturbed[f's{i}'][1:n+1].values.tolist(),
+                "perturbed_original": perturbed[f'o{i}'][1:n+1].values.tolist()} 
                 for i in range(k)]
+    return perturbed
 
 
 def load_mask_model(mask_model_name):
@@ -247,9 +248,10 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--openai', action='store_true', help='specify if query model is an OpenAI model')
     parser.add_argument('-d', '--directory', help='directory to save plots, should contain info abt query models and dataset')
     parser.add_argument('-k', '--k_examples', help='load k examples from file', type=int)
+    parser.add_argument('--perturbed', action='store_true', help='specify to indicate perturbations already in infile')
 
     perturb_options = parser.add_argument_group()
-    perturb_options.add_argument('-n', '--n_perturbations', help='number of perturbations to perform in experiments', type=int, default=25)
+    perturb_options.add_argument('-n', '--n_perturbations', help='number of perturbations to perform in experiments', type=int, default=5)
     perturb_options.add_argument('-s', '--span_length', help='span of tokens to mask in candidate passages', type=int, default=2)
     perturb_options.add_argument('-p', '--perturb_pct', help='percentage (as decimal) of each passage to perturb', type=float, default=0.15)
     perturb_options.add_argument('-r', '--n_perturbation_rounds', help='number of times to attempt perturbations', type=int, default=1)
@@ -282,16 +284,20 @@ if __name__ == '__main__':
     }
 
     # core model pipeline: perturb, query probabilities, make predictions
-    mask_tokenizer, mask_model = load_mask_model(MASK_FILLING_MODEL)
-    perturbed = perturb_texts(data, mask_tokenizer, mask_model, **hyperparameters)
 
-    if args.writefile:  # write the perturbations if file specified
-        original_cols = [[p['original']] + p['perturbed_original'] for p in perturbed]
-        sampled_cols = [[p['sampled']] + p['perturbed_sampled'] for p in perturbed]
-        orig_dict = { f'o{i+1}' : col for i, col in enumerate(original_cols)}
-        sampled_dict = { f's{i+1}' : col for i, col in enumerate(sampled_cols)}
-        pd.DataFrame(data={**orig_dict, **sampled_dict}).to_csv(args.writefile)
+    if not args.perturbed:
+        mask_tokenizer, mask_model = load_mask_model(MASK_FILLING_MODEL)
+        perturbed = perturb_texts(data, mask_tokenizer, mask_model, **hyperparameters)
 
+        if args.writefile:  # write the perturbations if file specified
+            original_cols = [[p['original']] + p['perturbed_original'] for p in perturbed]
+            sampled_cols = [[p['sampled']] + p['perturbed_sampled'] for p in perturbed]
+            orig_dict = { f'o{i+1}' : col for i, col in enumerate(original_cols)}
+            sampled_dict = { f's{i+1}' : col for i, col in enumerate(sampled_cols)}
+            pd.DataFrame(data={**orig_dict, **sampled_dict}).to_csv(args.writefile, index=False)
+
+    else:
+        perturbed = load_perturbed(args.infile, args.n_perturbations)
 
     if args.openai:
         results = query_lls(perturbed, openai_model=args.query_model, openai_opts=open_ai_hyperparams)

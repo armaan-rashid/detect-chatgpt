@@ -66,7 +66,7 @@ def get_lls(texts, openai_model=None, base_tokenizer=None, base_model=None, batc
         return [get_ll(text, base_tokenizer=base_tokenizer, base_model=base_model) for text in texts]
     else:
         pool = ThreadPool(batch_size)   # speed things up!
-        return pool.map(get_ll, texts, **open_ai_opts)
+        return pool.map(lambda txt: get_ll(txt, openai_model, **open_ai_opts), texts)
 
 def count_tokens(reset=False):
     if reset:
