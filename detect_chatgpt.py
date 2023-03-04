@@ -39,12 +39,18 @@ def load_data(filename, k=None):
     conv['sampled'] = conv['sampled'][:min(k, len(conv['sampled']))]
     return conv
 
-def load_perturbed(filename, n):
+def load_perturbed(filename, n=0):
     """
     Load perturbed examples from a file.
     TODO: write this fn
     """
-    pass
+    perturbed = pd.read_csv(filename)
+    k = len(perturbed.columns) // 2  # number of candidate passages
+    n = min(n, len(perturbed) - 1) if n != 0 else len(perturbed) - 1
+    perturbed = [{"original": perturbed[f'o{i}'][0], "sampled": perturbed[f's{i}'][0],
+                "perturbed_sampled": perturbed[f's{i}'][1:n+1],
+                "perturbed_original": perturbed[f'o{i}'][1:n+1]} 
+                for i in range(k)]
 
 
 def load_mask_model(mask_model_name):

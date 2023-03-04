@@ -139,7 +139,6 @@ def generate_perturbations_(texts, span_length, pct, mask_model, mask_tokenizer,
     leaving text with new fills and maskstrings
     (3) extract the new fills
     (4) implant the new fills into the text to REPLACE the masked strings
-    CALLED BY: perturb_texts
     PARAMS:
     texts: list of texts to perturb
     span_length: how many tokens at a time to mask during perturbation
