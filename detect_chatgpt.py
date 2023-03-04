@@ -50,7 +50,7 @@ def load_perturbed(filename, n=0):
     perturbed = [{"original": perturbed[f'o{i}'][0], "sampled": perturbed[f's{i}'][0],
                 "perturbed_sampled": perturbed[f's{i}'][1:n+1].values.tolist(),
                 "perturbed_original": perturbed[f'o{i}'][1:n+1].values.tolist()} 
-                for i in range(k)]
+                for i in range(1,k+1)]
     return perturbed
 
 
