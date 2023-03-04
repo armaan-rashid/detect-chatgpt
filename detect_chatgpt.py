@@ -304,7 +304,7 @@ if __name__ == '__main__':
     else: 
         hf_model, hf_tokenizer = load_huggingface_model_and_tokenizer(args.query_model, args.dataset)
         results = query_lls(perturbed, base_model=hf_model, base_tokenizer=hf_tokenizer)
-    experiments = [run_perturbation_experiment(results, criterion, hyperparameters) for criterion in ['z', 'd']]
+    experiments = [run_perturbation_experiment(results, criterion, hyperparameters, args.dataset) for criterion in ['z', 'd']]
 
     # graph results, making sure the directory exists
     DIR = args.directory
