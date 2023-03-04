@@ -308,12 +308,12 @@ if __name__ == '__main__':
 
     # graph results, making sure the directory exists
     DIR = args.directory
-    if DIR and not os.path.exists(DIR):
-        os.makedirs(DIR)
     # within DIR save inside a directory with hyperparameter information
     save_dir = f'n={hyperparameters["n_perturbations"]}_s={hyperparameters["span_length"]}_p={hyperparameters["perturb_pct"]}'
     if args.openai:
         save_dir += f'_openai_temp={open_ai_hyperparams["temperature"]}_choices={open_ai_hyperparams["n"]}'
+    if not os.path.exists(f'{DIR}/{save_dir}'):
+        os.makedirs(f'{DIR}/{save_dir}')
     plt.figure()
     evaluation.save_roc_curves(experiments, args.query_model, f'{DIR}/{save_dir}')
     evaluation.save_ll_histograms(experiments, f'{DIR}/{save_dir}')
