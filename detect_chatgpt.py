@@ -266,7 +266,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    data = load_data(args.infile, args.k_examples)
 
     hyperparameters = {
         'n_perturbations': args.n_perturbations,
@@ -286,6 +285,7 @@ if __name__ == '__main__':
     # core model pipeline: perturb, query probabilities, make predictions
 
     if not args.perturbed:
+        data = load_data(args.infile, args.k_examples)
         mask_tokenizer, mask_model = load_mask_model(MASK_FILLING_MODEL)
         perturbed = perturb_texts(data, mask_tokenizer, mask_model, **hyperparameters)
 
