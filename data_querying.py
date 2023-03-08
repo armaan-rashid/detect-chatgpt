@@ -136,7 +136,7 @@ def xsum_generate(xsum: pd.DataFrame, tokens=30, prompt_msg=None, min_words=250,
     RETURNS: DataFrame of generated XSum examples
     """
     tokenizer = transformers.GPT2Tokenizer.from_pretrained('gpt2')
-    tokenizer.pad_token_id = tokenizer.eos_token_id
+    tokenizer.pad_token_id = [tokenizer.eos_token_id]
     tokenized = tokenizer(xsum['articles'].values.tolist(), return_tensors="pt", padding=True).to(DEVICE)
     tokenized = {key: value[:, :tokens] for key, value in tokenized.items()}
 
