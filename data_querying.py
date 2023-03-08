@@ -234,7 +234,7 @@ if __name__ == '__main__':
 
     input = argparser.add_mutually_exclusive_group(required=True)
     input.add_argument('-l', '--load', action='store_true', help='if you need to also download your dataset from the Hub, specify this option')
-    input.add_argument('-i', '--infile', nargs='+', help='csv file where dataset needs to be loaded from!')
+    input.add_argument('-i', '--infile', help='csv file where dataset needs to be loaded from!')
     
     output = argparser.add_argument_group()
     output.add_argument('--out_human', help='If --load is specified, this is where load will store the human language data.')
