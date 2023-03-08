@@ -6,4 +6,3 @@ Stack Overflow data/**
 *.zip
 __pycache__
 writingPrompts/**
-SQuAD/**
