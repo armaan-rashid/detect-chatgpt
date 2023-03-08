@@ -188,7 +188,7 @@ def squad_generate(squad: pd.DataFrame, min_words=250, retain=False, outfile=Non
     squad: DataFrame with chatGPT responses
     """
     squad['prompts'] = squad.apply(lambda row: row['contexts'] + '\n' + row['questions'], axis=1)
-    squad = prompt_from_dataframe(squad, init_ChatGPT(LOGIN), min_words=min_words verbose=VERBOSE, min_words=250)
+    squad = prompt_from_dataframe(squad, init_ChatGPT(LOGIN), min_words=min_words, verbose=VERBOSE, min_words=250)
     if outfile:
         if retain:
             squad['prompts', 'responses'].to_csv(outfile, index=False)
