@@ -247,6 +247,6 @@ if __name__ == '__main__':
     elif args.dataset == 'squad':
         squad = squad_load(infile=args.infile, outfile=args.out_human, num_examples=args.num_examples)
         if not args.no_query:
-            squad_with_responses = squad_generate(squad, temp=args.temperature, prompt_msg=args.msg, min_words=args.min_words, outfile=args.out_chatgpt)
+            squad_with_responses = squad_generate(squad, temp=args.temperature, min_words=args.min_words, outfile=args.out_chatgpt)
 
     print(f'Used {USAGE} tokens in this run.')
