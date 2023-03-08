@@ -8,9 +8,38 @@ https://github.com/eric-mitchell/detect-gpt
 """
 
 import pandas as pd
-import data_querying as dq
 from argparse import ArgumentParser
 from revChatGPT.V1 import Chatbot
+
+FAILSTRING = 'Failed response.'
+
+def init_ChatGPT(login):
+    """
+    DESC: Login to chatGPT.
+    CALLED BY: generate() funcs
+    """
+    try:
+        chatbot = Chatbot(config=login)
+        return chatbot
+    except:
+        print('Can\'t log in right now. Maybe check your internet connection.')
+
+
+def prompt_ChatGPT(prompt: str, chatbot: Chatbot, min_words=250, cont_prompt='Please, keep going.'):
+    """
+    DESC: Self-explanatory, prompts chatbot with prompt
+    til response length greater than min_words.
+    CALLED_BY: generate() funcs
+    """
+    response = ''
+    for data in chatbot.ask(prompt):
+        response = data['message']
+    while len(response) < min_words:
+        append = ''
+        for data in chatbot.ask(cont_prompt):
+            append = data['message']
+        response = response + ' ' + append
+    return response
 
 def concat_cols(row, cols):
     string = ''
@@ -68,7 +97,7 @@ def process_spaces(story: str):
 
 def repair_dataframe(data: pd.DataFrame, chatbot: Chatbot, verbose=False):
     """
-    TODO: UPDATE WITH THE CHATGPT API! Maybe
+    TODO: UPDATE WITH THE CHATGPT API! Maybe? I don't want to pay either though.
     DESC: Repair dataframe that has incomplete responses from ChatGPT.
     PARAMS:
     data: a dataFrame that has both a 'prompts' and 'responses' column
@@ -78,10 +107,10 @@ def repair_dataframe(data: pd.DataFrame, chatbot: Chatbot, verbose=False):
     fail = 0
     count = 0
     for _, row in data.iterrows():
-        if row['responses'] == dq.FAILSTRING:
+        if row['responses'] == FAILSTRING:
             try: 
                 prompt = row['prompts']
-                response = dq.prompt_ChatGPT(prompt, chatbot)
+                response = prompt_ChatGPT(prompt, chatbot)
                 row['responses'] = response
                 if verbose:
                     print(f'{prompt}:{response}')
@@ -166,7 +195,7 @@ if __name__=='__main__':
 
     elif args.task == 'repair':
         broken = pd.read_csv(args.repair_file)
-        fixed = repair_dataframe(broken, dq.init_ChatGPT(args.email, args.password, args.paid))
+        fixed = repair_dataframe(broken, init_ChatGPT(args.email, args.password, args.paid))
         fixed.to_csv(args.repair_file, index=False)
 
     elif args.task == 'strip':
