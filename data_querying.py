@@ -23,7 +23,7 @@ import transformers
 import random
 from datasets import load_dataset
 from torch import cuda
-from data_processing import process_spaces   # from Mitchell et al.'s official implementation
+from data_processing import process_spaces   
 from argparse import ArgumentParser
 from revChatGPT.V1 import Chatbot
 
@@ -42,7 +42,7 @@ def init_ChatGPT(login):
         print('Can\'t log in right now. Maybe check your internet connection.')
 
 
-def prompt_ChatGPT(prompt: str, chatbot: Chatbot, min_words=250):
+def prompt_ChatGPT(prompt: str, chatbot: Chatbot, min_words=250, cont_prompt='Please, keep going.'):
     """
     DESC: Self-explanatory, prompts chatbot with prompt
     til response length greater than min_words.
@@ -53,14 +53,13 @@ def prompt_ChatGPT(prompt: str, chatbot: Chatbot, min_words=250):
         response = data['message']
     while len(response) < min_words:
         append = ''
-        for data in chatbot.ask('Please, keep going.'):
+        for data in chatbot.ask(cont_prompt):
             append = data['message']
         response = response + ' ' + append
     return response
 
 def output_ChatGPT(df: pd.DataFrame, outfile, retain: bool):
     """
-    TODO: edit this func to handle pauses / quota limits
     DESC: print a dataFrame to csv that contains prompts, responses
     CALLED BY: all generate() funcs
     PARAMS: 
@@ -91,17 +90,18 @@ def prompt_from_dataframe(data: pd.DataFrame, chatbot: Chatbot, verbose=False, m
     responses = []
     for prompt in data['prompts']:
         try: 
-            response = prompt_ChatGPT(prompt, chatbot)
+            response = prompt_ChatGPT(prompt, chatbot, min_words)
             responses.append(response)
             if verbose:
                 print(f'{prompt}:{response}')
             count += 1
             chatbot.reset_chat()
         except:
-            print(f'The prompt: {prompt} did not successfully get a response from ChatGPT.\n')
-            responses.append('Failed response.')
-            fail += 1
-            continue
+            print(f'The prompt: {prompt} did not successfully get a response from ChatGPT. It is likely \
+                    you have hit the request limit, so we\'ll stop right now. \n')
+            fail = len(data) - count
+            responses.extend([FAILSTRING for _ in range(fail)])
+            break
     data['responses'] = responses   # add responses to the DF
     print(f'Successfully got {count} responses from ChatGPT, failed to get {fail} responses.')
     return data 
@@ -124,7 +124,8 @@ def xsum_generate(xsum: pd.DataFrame, tokens=30, prompt_msg=None, min_words=250,
     ChatGPT. This function is different than the functions for other datasets
     because we're calling a tokenizer to cut off the prompt at 
     the length specified by tokens, whereas the other datasets have a natural 
-    notion of prompt.
+    notion of prompt. Part of this function adapted from Mitchell et al.'s
+    original ChatGPT implementation @ https://github.com/eric-mitchell/detect-gpt
     PARAMS: 
     xsum: DataFrame of XSum news articles (needs 'articles' column)
     tokens: number of tokens from article to prompt ChatGPT with

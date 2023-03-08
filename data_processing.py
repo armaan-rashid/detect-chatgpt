@@ -2,10 +2,13 @@
 This file contains some basic data processing utility functions. 
 Can be run as a script to either repair unfinished data, merge data
 or load data from files into the main ChatGPT script. 
+Some of these functions are from Mitchell et al.'s 
+detectGPT and noted. Their original code can be found here:
+https://github.com/eric-mitchell/detect-gpt
 """
 
 import pandas as pd
-import data_querying
+import data_querying as dq
 from argparse import ArgumentParser
 from revChatGPT.V1 import Chatbot
 
@@ -16,12 +19,28 @@ def concat_cols(row, cols):
     return string.strip()
 
 
+def match_lengths(data: pd.DataFrame):
+    """
+    Given a DataFrame of original and sampled content, truncate the 
+    original-sampled pairs to roughly match length (i.e. have same
+    word count.) data must have 'original' and 'sampled' cols.
+    """
+    for i, row in data.iterrows():
+        orig_split = row['original'].split()
+        sampled_split = row['sampled'].split()
+        trunc = min(len(orig_split), len(sampled_split))
+        row['original'] = orig_split[:trunc].join(' ')
+        row['sampled'] = sampled_split[:trunc].join(' ')
+    return data
+
 
 def process_prompt(prompt):
+    """For WritingPrompts data, from Mitchell et al."""
     return prompt.replace('[ WP ]', '').replace('[ OT ]', '')
 
 
-def process_spaces(story):
+def process_spaces(story: str):
+    """Basic processing function, adapted from Mitchell et al."""
     return story.replace(
         ' ,', ',').replace(
         ' .', '.').replace(
@@ -42,12 +61,14 @@ def process_spaces(story):
         ' i ', ' I ').replace(
         ' i\'', ' I\'').replace(
         '\\\'', '\'').replace(
-        '\n ', '\n').strip()
+        '\n ', ' ').replace(
+        '\n', ' ').replace(
+        '  ', ' ').strip()
 
 
 def repair_dataframe(data: pd.DataFrame, chatbot: Chatbot, verbose=False):
     """
-    TODO: UPDATE WITH THE CHATGPT API!
+    TODO: UPDATE WITH THE CHATGPT API! Maybe
     DESC: Repair dataframe that has incomplete responses from ChatGPT.
     PARAMS:
     data: a dataFrame that has both a 'prompts' and 'responses' column
@@ -57,10 +78,10 @@ def repair_dataframe(data: pd.DataFrame, chatbot: Chatbot, verbose=False):
     fail = 0
     count = 0
     for _, row in data.iterrows():
-        if row['responses'] == data_querying.FAILSTRING:
+        if row['responses'] == dq.FAILSTRING:
             try: 
                 prompt = row['prompts']
-                response = data_querying.prompt_ChatGPT(prompt, chatbot)
+                response = dq.prompt_ChatGPT(prompt, chatbot)
                 row['responses'] = response
                 if verbose:
                     print(f'{prompt}:{response}')
@@ -145,7 +166,7 @@ if __name__=='__main__':
 
     elif args.task == 'repair':
         broken = pd.read_csv(args.repair_file)
-        fixed = repair_dataframe(broken, data_querying.init_ChatGPT(args.email, args.password, args.paid))
+        fixed = repair_dataframe(broken, dq.init_ChatGPT(args.email, args.password, args.paid))
         fixed.to_csv(args.repair_file, index=False)
 
     elif args.task == 'strip':
