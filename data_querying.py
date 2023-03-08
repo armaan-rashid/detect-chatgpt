@@ -168,7 +168,7 @@ def xsum_load(infile=None, outfile=None, num_examples=500, preprocess=process_sp
     xsum_dict = load_dataset('xsum')
     xsum = xsum_dict['train']
     articles = [preprocess(xsum[idx]['document']) for idx in random.sample(range(len(xsum)), num_examples)]
-    df = pd.DataFrame(articles)
+    df = pd.DataFrame({'articles': articles})
     if outfile:
         df.to_csv(outfile, index=False)
     return df
