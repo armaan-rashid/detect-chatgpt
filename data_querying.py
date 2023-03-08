@@ -185,7 +185,7 @@ def squad_load(infile=None, outfile=None, num_examples=500, preprocess=process_s
     idxs = random.sample(range(len(squad)), num_examples)
     contexts = [preprocess(squad[idx]['context']) for idx in idxs]
     questions = [preprocess(squad[idx]['question']) for idx in idxs]
-    answers = [preprocess(squad[idx]['answers']['text']) for idx in idxs]
+    answers = [preprocess(squad[idx]['answers']['text'][0]) for idx in idxs]
     df = pd.DataFrame({'contexts': contexts, 'questions': questions, 'answers': answers})
     if outfile:
         df.to_csv(outfile, index=False)
