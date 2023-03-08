@@ -174,7 +174,7 @@ def xsum_load(infile=None, outfile=None, num_examples=500, preprocess=process_sp
     return df
 
 
-def squad_generate(squad: pd.DataFrame, prompt_msg=None, min_words=250, retain=False, outfile=None):
+def squad_generate(squad: pd.DataFrame, min_words=250, retain=False, outfile=None):
     """
     DESC: Given a dataFrame of SQuAD q's, a's, contexts, prepare data
     to feed in as prompts to ChatGPT. Write to outfile if provided.
@@ -188,7 +188,7 @@ def squad_generate(squad: pd.DataFrame, prompt_msg=None, min_words=250, retain=F
     squad: DataFrame with chatGPT responses
     """
     squad['prompts'] = squad.apply(lambda row: row['contexts'] + '\n' + row['questions'], axis=1)
-    squad = prompt_from_dataframe(squad, init_ChatGPT(LOGIN), verbose=VERBOSE, min_words=250)
+    squad = prompt_from_dataframe(squad, init_ChatGPT(LOGIN), min_words=min_words verbose=VERBOSE, min_words=250)
     if outfile:
         if retain:
             squad['prompts', 'responses'].to_csv(outfile, index=False)
