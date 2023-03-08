@@ -238,7 +238,7 @@ if __name__ == '__main__':
     
     output = argparser.add_argument_group()
     output.add_argument('--out_human', help='If --load is specified, this is where load will store the human language data.')
-    output.add_argument('--out_chatgpt', action='store', nargs='?', help='Destination file to write prompts/responses from ChatGPT.')
+    output.add_argument('--out_chatgpt', action='store', help='Destination file to write prompts/responses from ChatGPT.')
     output.add_argument('-r', '--retain', action='store_true', help='If this option is specified, write both prompt \
                                                                      and response together, separated by a space, in file/output.')
     output.add_argument('-v', '--verbose', action='store_true', help='Print ChatGPT\'s responses as it\'s being queried.')
