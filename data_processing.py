@@ -9,37 +9,17 @@ https://github.com/eric-mitchell/detect-gpt
 
 import pandas as pd
 from argparse import ArgumentParser
-from revChatGPT.V1 import Chatbot
+import openai
+import os
 
+
+# housekeeping some global vars
+USAGE = 0
+FAILSTRING = 'Failed response.'
+SYSTEM = {'role': 'system', 'content': 'You are a helpful assistant.'}   # a default system msg to use for all prompts 
+CONTINUE = {'role': 'user', 'content': 'Please, continue.'}
 FAILSTRING = 'Failed response.'
 
-def init_ChatGPT(login):
-    """
-    DESC: Login to chatGPT.
-    CALLED BY: generate() funcs
-    """
-    try:
-        chatbot = Chatbot(config=login)
-        return chatbot
-    except:
-        print('Can\'t log in right now. Maybe check your internet connection.')
-
-
-def prompt_ChatGPT(prompt: str, chatbot: Chatbot, min_words=250, cont_prompt='Please, keep going.'):
-    """
-    DESC: Self-explanatory, prompts chatbot with prompt
-    til response length greater than min_words.
-    CALLED_BY: generate() funcs
-    """
-    response = ''
-    for data in chatbot.ask(prompt):
-        response = data['message']
-    while len(response) < min_words:
-        append = ''
-        for data in chatbot.ask(cont_prompt):
-            append = data['message']
-        response = response + ' ' + append
-    return response
 
 def concat_cols(row, cols):
     string = ''
@@ -48,18 +28,18 @@ def concat_cols(row, cols):
     return string.strip()
 
 
-def match_lengths(data: pd.DataFrame):
+def match_lengths(data: pd.DataFrame, col1: str, col2: str):
     """
-    Given a DataFrame of original and sampled content, truncate the 
+    Given a DataFrame of two columns, truncate the 
     original-sampled pairs to roughly match length (i.e. have same
-    word count.) data must have 'original' and 'sampled' cols.
+    word count.) 
     """
     for i, row in data.iterrows():
-        orig_split = row['original'].split()
-        sampled_split = row['sampled'].split()
+        orig_split = row[col1].split()
+        sampled_split = row[col2].split()
         trunc = min(len(orig_split), len(sampled_split))
-        row['original'] = orig_split[:trunc].join(' ')
-        row['sampled'] = sampled_split[:trunc].join(' ')
+        row[col1] = orig_split[:trunc].join(' ')
+        row[col2] = sampled_split[:trunc].join(' ')
     return data
 
 
@@ -95,9 +75,8 @@ def process_spaces(story: str):
         '  ', ' ').strip()
 
 
-def repair_dataframe(data: pd.DataFrame, chatbot: Chatbot, verbose=False):
+def repair_dataframe(data: pd.DataFrame, temp: float, min_words=250):
     """
-    TODO: UPDATE WITH THE CHATGPT API! Maybe? I don't want to pay either though.
     DESC: Repair dataframe that has incomplete responses from ChatGPT.
     PARAMS:
     data: a dataFrame that has both a 'prompts' and 'responses' column
@@ -110,13 +89,9 @@ def repair_dataframe(data: pd.DataFrame, chatbot: Chatbot, verbose=False):
         if row['responses'] == FAILSTRING:
             try: 
                 prompt = row['prompts']
-                response = prompt_ChatGPT(prompt, chatbot)
+                response = prompt_ChatGPT(prompt, temp, min_words)
                 row['responses'] = response
-                if verbose:
-                    print(f'{prompt}:{response}')
                 count += 1
-                chatbot.reset_chat()
-                chatbot.clear_conversations()
             except:
                 print(f'The prompt: {prompt} did not successfully get a response from ChatGPT.\n')
                 fail += 1
@@ -124,7 +99,29 @@ def repair_dataframe(data: pd.DataFrame, chatbot: Chatbot, verbose=False):
     print(f'Successfully got {count} responses from ChatGPT, failed to get {fail} responses.')
     return data
 
+def prompt_ChatGPT(prompt: str, temp: float, min_words=250, postprocess=process_spaces):
+    """
+    DESC: Self-explanatory, prompts OpenAI API with prompt
+    til response length greater than min_words.
+    CALLED_BY: generate() funcs
+    """
+    global USAGE
+    response_len = 0
+    msgs = [SYSTEM, {'role': 'user', 'content': prompt}]
 
+    response_len = 0
+
+    while response_len < min_words:
+        if response_len != 0:
+            msgs.append(CONTINUE)
+        r = openai.ChatCompletion.create(model='gpt-3.5-turbo', messages=msgs, temperature=temp)
+        USAGE += r['usage']['total_tokens']
+        msgs.append(r['choices'][0]['message'])
+        this_len = len(msgs[-1]['content'].split())
+        response_len += this_len
+    
+    response = ' '.join([msg for msg in msgs if msg['role'] == 'assistant'])
+    return postprocess(response)
 
 def merge_human_sampled(original_file, original_cols, sampled_file, sampled_cols, outfile=None):
     """
@@ -148,6 +145,7 @@ def merge_human_sampled(original_file, original_cols, sampled_file, sampled_cols
     original['original'] = original.apply(lambda row: concat_cols(row, original_cols), axis=1)
     sampled['sampled'] = sampled.apply(lambda row: concat_cols(row, sampled_cols), axis=1)
     df = pd.concat([original['original'], sampled['sampled']], axis=1)
+    df = match_lengths(df, 'original', 'sampled')
     if outfile:
         df.to_csv(outfile, index=False)
     return df
@@ -174,10 +172,9 @@ if __name__=='__main__':
     merge.add_argument('--sampled_cols', help='cols to grab from data', type=str)
     merge.add_argument('--outfile', help='where to store new merged data')
     repair = parser.add_argument_group()
-    repair.add_argument('--repair_file', nargs=1, help='file with data that needs to be repaired')
-    repair.add_argument('--email', nargs=1, help='for ChatGPT login')
-    repair.add_argument('--password', nargs=1),
-    repair.add_argument('--paid', action='store_true', help='specify if acct holder has paid ChatGPT')
+    repair.add_argument('--repair_file', help='file with data that needs to be repaired')
+    repair.add_argument('--temp', help='for ChatGPT prompting')
+    repair.add_argument('--min_words', help='for ChatGPT prompting'),
     strip = parser.add_argument_group()
     strip.add_argument('--strip_file', help='file to strip from')
     strip.add_argument('--strip_col', help='col to strip from')
@@ -194,12 +191,13 @@ if __name__=='__main__':
     
 
     elif args.task == 'repair':
+        openai.api_key = os.getenv('OPENAI_API_KEY')
         broken = pd.read_csv(args.repair_file)
-        fixed = repair_dataframe(broken, init_ChatGPT(args.email, args.password, args.paid))
+        fixed = repair_dataframe(broken, args.temp, args.min_words)
         fixed.to_csv(args.repair_file, index=False)
+        print(f'Used {USAGE} tokens in this run.')
 
     elif args.task == 'strip':
         assert args.strip_file and args.strip_col and args.strip_msg
         strip_text(args.strip_file, args.strip_col, args.strip_msg)
-
 

@@ -21,59 +21,20 @@ Generally, we use .csv files and DataFrames because it's easy.
 import pandas as pd
 import transformers
 import random
+import os
+import openai
 from datasets import load_dataset
 from torch import cuda
-from data_processing import process_spaces   
+from data_processing import process_spaces, match_lengths
 from argparse import ArgumentParser
-from revChatGPT.V1 import Chatbot
 
+USAGE = 0
 DEVICE = 'cuda' if cuda.is_available() else 'cpu'
 FAILSTRING = 'Failed response.'
+SYSTEM = {'role': 'system', 'content': 'You are a helpful assistant.'}   # a default system msg to use for all prompts 
+CONTINUE = {'role': 'user', 'content': 'Please, continue.'}
 
-def init_ChatGPT(login):
-    """
-    DESC: Login to chatGPT.
-    CALLED BY: generate() funcs
-    """
-    try:
-        chatbot = Chatbot(config=login)
-        return chatbot
-    except:
-        print('Can\'t log in right now. Maybe check your internet connection.')
-
-
-def prompt_ChatGPT(prompt: str, chatbot: Chatbot, min_words=250, cont_prompt='Please, keep going.'):
-    """
-    DESC: Self-explanatory, prompts chatbot with prompt
-    til response length greater than min_words.
-    CALLED_BY: generate() funcs
-    """
-    response = ''
-    for data in chatbot.ask(prompt):
-        response = data['message']
-    while len(response) < min_words:
-        append = ''
-        for data in chatbot.ask(cont_prompt):
-            append = data['message']
-        response = response + ' ' + append
-    return response
-
-def output_ChatGPT(df: pd.DataFrame, outfile, retain: bool):
-    """
-    DESC: print a dataFrame to csv that contains prompts, responses
-    CALLED BY: all generate() funcs
-    PARAMS: 
-    df: DataFrame to print
-    retain: indicating to print prompts or not
-    outfile: file to print to
-    """
-    if retain:
-        df['prompts', 'responses'].to_csv(outfile, index=False)
-    else:
-        df['responses'].to_csv(outfile, index=False)
-
-
-def prompt_from_dataframe(data: pd.DataFrame, chatbot: Chatbot, verbose=False, min_words=250):
+def prompt_from_dataframe(data: pd.DataFrame, temp, min_words: int):
     """
     DESC: Query ChatGPT to generate a response for every prompt and
     append these responses to a dataFrame.
@@ -88,22 +49,43 @@ def prompt_from_dataframe(data: pd.DataFrame, chatbot: Chatbot, verbose=False, m
     count = 0
     fail = 0
     responses = []
+
+    def prompt_ChatGPT(prompt: str, postprocess=process_spaces):
+        """
+        DESC: Self-explanatory, prompts OpenAI API with prompt
+        til response length greater than min_words.
+        CALLED_BY: generate() funcs
+        """
+        global USAGE
+        response_len = 0
+        msgs = [SYSTEM, {'role': 'user', 'content': prompt}]
+
+        response_len = 0
+
+        while response_len < min_words:
+            if response_len != 0:
+                msgs.append(CONTINUE)
+            r = openai.ChatCompletion.create(model='gpt-3.5-turbo', messages=msgs, temperature=temp)
+            USAGE += r['usage']['total_tokens']
+            msgs.append(r['choices'][0]['message'])
+            this_len = len(msgs[-1]['content'].split())
+            response_len += this_len
+        
+        response = ' '.join([msg['content'] for msg in msgs if msg['role'] == 'assistant'])
+        return postprocess(response)
+
     for prompt in data['prompts']:
-        try: 
-            response = prompt_ChatGPT(prompt, chatbot, min_words)
-            responses.append(response)
-            if verbose:
-                print(f'{prompt}:{response}')
+        try:
+            responses.append(prompt_ChatGPT(prompt))
             count += 1
-            chatbot.reset_chat()
         except:
-            print(f'The prompt: {prompt} did not successfully get a response from ChatGPT. It is likely \
-                    you have hit the request limit, so we\'ll stop right now. \n')
-            fail = len(data) - count
-            responses.extend([FAILSTRING for _ in range(fail)])
-            break
+            fail += 1
+            responses.append(FAILSTRING)
+            print(f'Failed to get response to \"{prompt}\" from ChatGPT. Moving on to next prompt. Use data_processing ' 
+                   'script to repair later.')
+
     data['responses'] = responses   # add responses to the DF
-    print(f'Successfully got {count} responses from ChatGPT, failed to get {fail} responses.')
+    print(f'Successfully got {count} responses from ChatGPT at temperature {temp}. Failed to get {fail} responses.')
     return data 
         
 
@@ -118,7 +100,37 @@ def prompt_from_dataframe(data: pd.DataFrame, chatbot: Chatbot, verbose=False, m
 #     print(f"Received {len(df)} examples from BigQuery.")
 
 
-def xsum_generate(xsum: pd.DataFrame, tokens=30, prompt_msg=None, min_words=250, retain=False, outfile=None):
+def load_human_data(file, num_examples):
+    """
+    Self-explanatory: load n examples of human data, i.e. prompts, from a file.
+    """
+    df = pd.read_csv(file)
+    assert len(df) >= num_examples and num_examples > 1, 'need to choose more than 1 example, or too many examples for file'
+    return df.loc[:num_examples]
+
+
+def xsum_load(infile=None, outfile=None, num_examples=500, preprocess=process_spaces):
+    """
+    DESC: Download XSum from HuggingFace datasets hub, or load from file.
+    PARAMS:
+    infile: file where dataset already lives, if applicable
+    outfile: file to write human data to if applicable
+    num_examples: num to take from HuggingFace dataset
+    preprocess: function for preprocessing examples
+    RETURNS: DataFrame of human XSum examples
+    """
+    if infile:
+        return load_human_data(infile, num_examples)
+    xsum_dict = load_dataset('xsum')
+    xsum = xsum_dict['train']
+    articles = [preprocess(xsum[idx]['document']) for idx in random.sample(range(len(xsum)), num_examples)]
+    df = pd.DataFrame({'articles': articles})
+    if outfile:
+        df.to_csv(outfile, index=False)
+    return df
+
+
+def xsum_generate(xsum: pd.DataFrame, temp, tokens=30, prompt_msg='', min_words=250, outfile=None):
     """
     DESC: Truncate the news articles in the XSum data and prompt
     ChatGPT. This function is different than the functions for other datasets
@@ -136,65 +148,20 @@ def xsum_generate(xsum: pd.DataFrame, tokens=30, prompt_msg=None, min_words=250,
     RETURNS: DataFrame of generated XSum examples
     """
     tokenizer = transformers.GPT2Tokenizer.from_pretrained('gpt2')
-    tokenizer.pad_token_id = [tokenizer.eos_token_id]
+    try:    # this needs to be try/except for compatibility with different versions of datasets API
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+    except:
+        tokenizer.pad_token_id = [tokenizer.eos_token_id]
     tokenized = tokenizer(xsum['articles'].values.tolist(), return_tensors="pt", padding=True).to(DEVICE)
     tokenized = {key: value[:, :tokens] for key, value in tokenized.items()}
 
     prompts = tokenizer.batch_decode(tokenized['input_ids'], skip_special_tokens=True)
-    xsum['prompts'] = prompts
-    
-    if prompt_msg:
-        xsum['prompts'] = [prompt_msg + prompt for prompt in prompts]
-    xsum = prompt_from_dataframe(xsum, init_ChatGPT(LOGIN), verbose=VERBOSE, min_words=min_words)
+    xsum['prompts'] = [prompt_msg + prompt for prompt in prompts]
+    xsum = prompt_from_dataframe(xsum, temp, min_words=min_words)
     if outfile:
-        if retain:
-            xsum['prompts', 'responses'].to_csv(outfile, index=False)
-        else:
-            xsum['responses'].to_csv(outfile, index=False)
+        xsum['prompts', 'responses'].to_csv(outfile, index=False)
     return xsum
 
-def xsum_load(infile=None, outfile=None, num_examples=500, preprocess=process_spaces):
-    """
-    DESC: Download XSum from HuggingFace datasets hub, or load from file.
-    PARAMS:
-    infile: file where dataset already lives, if applicable
-    outfile: file to write human data to if applicable
-    num_examples: num to take from HuggingFace dataset
-    preprocess: function for preprocessing examples
-    RETURNS: DataFrame of human XSum examples
-    """
-    if infile:
-        return pd.read_csv(infile)
-    xsum_dict = load_dataset('xsum')
-    xsum = xsum_dict['train']
-    articles = [preprocess(xsum[idx]['document']) for idx in random.sample(range(len(xsum)), num_examples)]
-    df = pd.DataFrame({'articles': articles})
-    if outfile:
-        df.to_csv(outfile, index=False)
-    return df
-
-
-def squad_generate(squad: pd.DataFrame, min_words=250, retain=False, outfile=None):
-    """
-    DESC: Given a dataFrame of SQuAD q's, a's, contexts, prepare data
-    to feed in as prompts to ChatGPT. Write to outfile if provided.
-    PARAMS:
-    squad: DataFrame of squad examples (must have contexts and questions cols)
-    prompt_msg: msg to prompt chatGPT with in addition to questions
-    min_words: min valid length of chatGPT response
-    retain: write prompts to outfile
-    outfile: file to write prompts/responses
-    RETURNS:
-    squad: DataFrame with chatGPT responses
-    """
-    squad['prompts'] = squad.apply(lambda row: row['contexts'] + '\n' + row['questions'], axis=1)
-    squad = prompt_from_dataframe(squad, init_ChatGPT(LOGIN), min_words=min_words, verbose=VERBOSE)
-    if outfile:
-        if retain:
-            squad['prompts', 'responses'].to_csv(outfile, index=False)
-        else:
-            squad['responses'].to_csv(outfile, index=False)
-    return squad
 
 
 def squad_load(infile=None, outfile=None, num_examples=500, preprocess=process_spaces):
@@ -210,7 +177,9 @@ def squad_load(infile=None, outfile=None, num_examples=500, preprocess=process_s
     dataFrame with contexts, questions, and answers
     """
     if infile:
-        return pd.read_csv(infile)
+        df = pd.read_csv(infile)
+        assert len(df) >= num_examples and num_examples > 1, 'need to choose more than 1 example, or too many examples for file'
+        return df.loc[:num_examples]
     squad_dict = load_dataset("squad")
     squad = squad_dict['train']
     idxs = random.sample(range(len(squad)), num_examples)
@@ -221,16 +190,35 @@ def squad_load(infile=None, outfile=None, num_examples=500, preprocess=process_s
     if outfile:
         df.to_csv(outfile, index=False)
     return df
+
+
+
+def squad_generate(squad: pd.DataFrame, temp: float, min_words: int, outfile=None):
+    """
+    DESC: Given a dataFrame of SQuAD q's, a's, contexts, prepare data
+    to feed in as prompts to ChatGPT. Write to outfile if provided.
+    PARAMS:
+    squad: DataFrame of squad examples (must have contexts and questions cols)
+    prompt_msg: msg to prompt chatGPT with in addition to questions
+    min_words: min valid length of chatGPT response
+    retain: write prompts to outfile
+    outfile: file to write prompts/responses
+    RETURNS:
+    squad: DataFrame with chatGPT responses
+    """
+    squad['prompts'] = squad.apply(lambda row: row['contexts'] + ' ' + row['questions'], axis=1)
+    squad = prompt_from_dataframe(squad, temp, min_words=min_words)
+    if outfile:
+        squad['prompts', 'responses'].to_csv(outfile, index=False)
+    return squad
     
 
 
 
 if __name__ == '__main__':
     argparser = ArgumentParser(prog='ChatGPT Scraper', description='Generate tokens and responses from ChatGPT using unofficial API.')
-    argparser.add_argument('email', help='openAI login')
-    argparser.add_argument('password', help='openAI login')
-    argparser.add_argument('-p', '--paid', action='store_true', help='specify option if you have ChatGPT Plus', default=False)
     argparser.add_argument('dataset', help="Specify which dataset you want to generate ChatGPT examples for.", choices=['xsum', 'wp', 'squad'])
+    argparser.add_argument('--no_query', action='store_true', help='specify if you DON\'T want to ask ChatGPT for examples, just load a dataset')
 
     input = argparser.add_mutually_exclusive_group(required=True)
     input.add_argument('-l', '--load', action='store_true', help='if you need to also download your dataset from the Hub, specify this option')
@@ -239,33 +227,26 @@ if __name__ == '__main__':
     output = argparser.add_argument_group()
     output.add_argument('--out_human', help='If --load is specified, this is where load will store the human language data.')
     output.add_argument('--out_chatgpt', action='store', help='Destination file to write prompts/responses from ChatGPT.')
-    output.add_argument('-r', '--retain', action='store_true', help='If this option is specified, write both prompt \
-                                                                     and response together, separated by a space, in file/output.')
-    output.add_argument('-v', '--verbose', action='store_true', help='Print ChatGPT\'s responses as it\'s being queried.')
 
     prompt_opts = argparser.add_argument_group()
     prompt_opts.add_argument('-m', '--msg', help='prompt before \'actual\' dataset prompt to give ChatGPT, if that might help ChatGPT give a better response')
-    prompt_opts.add_argument('-t', '--tokens', help='Specify number of tokens for creating prompts, when needed for a dataset', default=30, type=int)
-    prompt_opts.add_argument('-n', '--num_examples', help='Number of examples to grab when downloading a dataset, ignored otherwise.', type=int, default=500)
+    prompt_opts.add_argument('-t', '--tokens', help='Specify number of tokens for creating prompts: for XSum, primarily.', default=30, type=int)
+    prompt_opts.add_argument('-n', '--num_examples', help='Number of examples to grab when loading a dataset.', type=int, default=500)
     prompt_opts.add_argument('-w','--min_words', help='min_words desired from a ChatGPT response', type=int, default=250)
+    prompt_opts.add_argument('--temperature', help='temperature for sampling ChatGPT', type=float)
     
     args = argparser.parse_args()
 
-    # The only global variables, since we may login to ChatGPT multiple times. 
-    LOGIN = { 'email': args.email, 'password': args.password, 'paid': args.paid }
-    VERBOSE = args.verbose
+    openai.api_key = os.getenv('OPENAI_API_KEY')
 
     if args.dataset == 'xsum':
-        if args.load:
-            xsum = xsum_load(outfile=args.out_human, num_examples=args.num_examples)
-        else:
-            xsum = xsum_load(infile=args.infile)
-        xsum_with_responses = xsum_generate(xsum, tokens=args.tokens, prompt_msg=args.msg, min_words=args.min_words, 
-                                            retain=args.retain, outfile=args.out_chatgpt)
+        xsum = xsum_load(infile=args.infile, outfile=args.out_human, num_examples=args.num_examples)
+        if not args.no_query:
+            xsum_with_responses = xsum_generate(xsum, temp=args.temperature, tokens=args.tokens, prompt_msg=args.msg, min_words=args.min_words, outfile=args.out_chatgpt)
 
-    if args.dataset == 'squad':
-        if args.load:
-            squad = squad_load(outfile=args.out_human, num_examples=args.num_examples)
-        else:
-            squad = squad_load(infile=args.infile)
-        squad_with_responses = squad_generate(squad, prompt_msg=args.msg, min_words=args.min_words, retain=args.retain, outfile=args.out_chatgpt)
+    elif args.dataset == 'squad':
+        squad = squad_load(infile=args.infile, outfile=args.out_human, num_examples=args.num_examples)
+        if not args.no_query:
+            squad_with_responses = squad_generate(squad, temp=args.temperature, prompt_msg=args.msg, min_words=args.min_words, outfile=args.out_chatgpt)
+
+    print(f'Used {USAGE} tokens in this run.')
