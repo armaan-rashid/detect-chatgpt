@@ -159,7 +159,7 @@ def xsum_generate(xsum: pd.DataFrame, temp, tokens=30, prompt_msg='', min_words=
     xsum['prompts'] = [prompt_msg + prompt for prompt in prompts]
     xsum = prompt_from_dataframe(xsum, temp, min_words=min_words)
     if outfile:
-        xsum['prompts', 'responses'].to_csv(outfile, index=False)
+        xsum[['prompts', 'responses']].to_csv(outfile, index=False)
     return xsum
 
 
@@ -209,7 +209,7 @@ def squad_generate(squad: pd.DataFrame, temp: float, min_words: int, outfile=Non
     squad['prompts'] = squad.apply(lambda row: row['contexts'] + ' ' + row['questions'], axis=1)
     squad = prompt_from_dataframe(squad, temp, min_words=min_words)
     if outfile:
-        squad['prompts', 'responses'].to_csv(outfile, index=False)
+        squad[['prompts', 'responses']].to_csv(outfile, index=False)
     return squad
     
 
