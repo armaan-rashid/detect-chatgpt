@@ -211,9 +211,13 @@ def squad_generate(squad: pd.DataFrame, temp: float, min_words: int, outfile=Non
     if outfile:
         squad[['prompts', 'responses']].to_csv(outfile, index=False)
     return squad
-    
 
 
+def load_wp(infile: str, num_examples):
+    files = infile.split()
+    source, target = files[0], files[1]
+    with open(source) as src, open(target) as tgt:
+        
 
 if __name__ == '__main__':
     argparser = ArgumentParser(prog='ChatGPT Scraper', description='Generate tokens and responses from ChatGPT using unofficial API.')
