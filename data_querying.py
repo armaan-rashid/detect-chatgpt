@@ -130,7 +130,7 @@ def xsum_load(infile=None, outfile=None, num_examples=500, preprocess=process_sp
     return df
 
 
-def xsum_generate(xsum: pd.DataFrame, temp, tokens=30, prompt_msg='', min_words=250, outfile=None):
+def xsum_generate(xsum: pd.DataFrame, temp: float, tokens=30, prompt_msg='', min_words=250, outfile=None):
     """
     DESC: Truncate the news articles in the XSum data and prompt
     ChatGPT. This function is different than the functions for other datasets
@@ -177,9 +177,7 @@ def squad_load(infile=None, outfile=None, num_examples=500, preprocess=process_s
     dataFrame with contexts, questions, and answers
     """
     if infile:
-        df = pd.read_csv(infile)
-        assert len(df) >= num_examples and num_examples > 1, 'need to choose more than 1 example, or too many examples for file'
-        return df.loc[:num_examples]
+        return load_human_data(infile, num_examples)
     squad_dict = load_dataset("squad")
     squad = squad_dict['train']
     idxs = random.sample(range(len(squad)), num_examples)
@@ -213,20 +211,69 @@ def squad_generate(squad: pd.DataFrame, temp: float, min_words: int, outfile=Non
     return squad
 
 
-def load_wp(infile: str, num_examples):
-    files = infile.split()
-    source, target = files[0], files[1]
+def wp_load(infile: str, num_examples, outfile=None, load=False):
+    """
+    DESC: Another loading function, this time for Reddit WritingPrompts.
+    Some quirks because this dataset is stored in large files.
+    PARAMS:
+    infile: this could be ONE infile if args.load is false, TWO if it's true. If it's two,
+        then it's assumed the wp_source file is passed in first, then matching wp_target file.
+    num_examples: num_examples to load 
+    outfile: outfile to save data to if necessary
+    load: True if args.load is true, false otherwise
+    RETURNS: two column DataFrame, one of prompts and the other of stories
+    """
+    if not load:   # if args.load is true, assume infile is already-prepped csv
+        return load_human_data(infile, num_examples)
+    split = infile.find(' ')
+    source, target = infile[:split], infile[split+1:]
+
+    def remove_prompt_tag(string):   # implementation of this utility from Mitchell et al.
+        return string.replace('[ WP ]', '')
+    
+    prompts = []
+    stories = []
     with open(source) as src, open(target) as tgt:
-        
+        prompts = src.readlines()
+        stories = tgt.readlines()
+    # select num_examples examples with [ WP ] tag and take out the tag!
+    filtered = [(prompt, story) for prompt, story in zip(prompts, stories) if prompt.startswith('[ WP ]')]
+    filtered = [filtered[idx] for idx in random.sample(range(len(filtered)), num_examples)]
+    prompts, stories = zip(*filtered)
+    prompts = [remove_prompt_tag(process_spaces(prompt)).strip() for prompt in prompts]
+    stories = [process_spaces(story).strip() for story in stories]
+    df = pd.DataFrame({'prompts': prompts, 'stories': stories})
+    if outfile:
+        df.to_csv(outfile, index=False)
+    return df
+
+
+def wp_generate(wp: pd.DataFrame, temp: float, prompt_msg='', min_words=200, outfile=None):
+    """
+    DESC: Another ChatGPT-generating function. No tokenization necessary 
+    because we use the whole prompt to generate data, but optional 
+    prompt_msg can be passed in.
+    PARAMS: 
+    wp: DataFrame with 'prompts' and 'stories' columns of human prompts and stories
+    temp: temperature for sampling ChatGPT with
+    prompt_msg: message to append to beginning of each prompt
+    min_words: minimum words desired from each prompt
+    outfile: where to save generated examples
+    """
+    wp['prompts'] = wp.apply(lambda row: prompt_msg + row['prompts'], axis=1)
+    wp_with_responses = prompt_from_dataframe(wp, temp, min_words)
+    if outfile:
+        wp[['prompts', 'responses']].to_csv(outfile, index=False)
+    return wp_with_responses
 
 if __name__ == '__main__':
     argparser = ArgumentParser(prog='ChatGPT Scraper', description='Generate tokens and responses from ChatGPT using unofficial API.')
     argparser.add_argument('dataset', help="Specify which dataset you want to generate ChatGPT examples for.", choices=['xsum', 'wp', 'squad'])
-    argparser.add_argument('--no_query', action='store_true', help='specify if you DON\'T want to ask ChatGPT for examples, just load a dataset')
+    argparser.add_argument('-q', '--query', action='store_true', help='specify if you actually want to ask ChatGPT for examples. Safeguard against excess token use!')
 
-    input = argparser.add_mutually_exclusive_group(required=True)
-    input.add_argument('-l', '--load', action='store_true', help='if you need to also download your dataset from the Hub, specify this option')
-    input.add_argument('-i', '--infile', help='csv file where dataset needs to be loaded from!')
+    input = argparser.add_argument_group()
+    input.add_argument('-l', '--load', action='store_true', help='if you need to download your dataset from Hub/files, specify this option')
+    input.add_argument('-i', '--infile', help='files where dataset needs to be loaded from!')
     
     output = argparser.add_argument_group()
     output.add_argument('--out_human', help='If --load is specified, this is where load will store the human language data.')
@@ -234,10 +281,10 @@ if __name__ == '__main__':
 
     prompt_opts = argparser.add_argument_group()
     prompt_opts.add_argument('-m', '--msg', help='prompt before \'actual\' dataset prompt to give ChatGPT, if that might help ChatGPT give a better response')
-    prompt_opts.add_argument('-t', '--tokens', help='Specify number of tokens for creating prompts: for XSum, primarily.', default=30, type=int)
+    prompt_opts.add_argument('-k', '--tokens', help='Specify number of tokens when creating prompts for XSum dataset.', default=30, type=int)
     prompt_opts.add_argument('-n', '--num_examples', help='Number of examples to grab when loading a dataset.', type=int, default=500)
     prompt_opts.add_argument('-w','--min_words', help='min_words desired from a ChatGPT response', type=int, default=250)
-    prompt_opts.add_argument('--temperature', help='temperature for sampling ChatGPT', type=float)
+    prompt_opts.add_argument('-t', '--temperature', help='temperature for sampling ChatGPT', type=float)
     
     args = argparser.parse_args()
 
@@ -245,12 +292,17 @@ if __name__ == '__main__':
 
     if args.dataset == 'xsum':
         xsum = xsum_load(infile=args.infile, outfile=args.out_human, num_examples=args.num_examples)
-        if not args.no_query:
+        if args.query:
             xsum_with_responses = xsum_generate(xsum, temp=args.temperature, tokens=args.tokens, prompt_msg=args.msg, min_words=args.min_words, outfile=args.out_chatgpt)
 
     elif args.dataset == 'squad':
         squad = squad_load(infile=args.infile, outfile=args.out_human, num_examples=args.num_examples)
-        if not args.no_query:
+        if args.query:
             squad_with_responses = squad_generate(squad, temp=args.temperature, min_words=args.min_words, outfile=args.out_chatgpt)
+
+    elif args.dataset == 'wp':
+        wp = wp_load(infile=args.infile, num_examples=args.num_examples, outfile=args.out_human, load=args.load)
+        if args.query:
+            wp_with_responses = wp_generate(wp, temp=args.temperature, prompt_msg=args.msg, min_words=args.min_words, outfile=args.out_chatgpt)
 
     print(f'Used {USAGE} tokens in this run.')
