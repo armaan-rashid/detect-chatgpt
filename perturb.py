@@ -13,12 +13,28 @@ import re
 from torch import cuda
 import functools
 from argparse import ArgumentParser
-from data_processing import load_data
 import pandas as pd
 
 
 DEVICE = 'cuda' if cuda.is_available() else 'cpu'
 MASK_PATTERN = re.compile(r"<extra_id_\d+>")
+
+def load_data(filename, k=None):
+    """
+    From data_processing, copied here to avoid having to import
+    and create package issues on GPUs.
+    """
+    df = pd.read_csv(filename)
+    assert 'original' in df.columns and 'sampled' in df.columns, 'files need to have original and sampled cols'
+    print(f'Loading data from {filename}.')
+    conv = {'original': df['original'].values.tolist(),
+            'sampled': df['sampled'].values.tolist()}
+    if k is None:
+        k = len(conv['original'])
+    conv['original'] = conv['original'][:min(k, len(conv['original']))]
+    conv['sampled'] = conv['sampled'][:min(k, len(conv['sampled']))]
+    return conv
+
 
 
 def load_perturbed(filename, n=0):
