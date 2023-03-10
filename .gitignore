@@ -5,6 +5,5 @@ Azure/**
 Stack Overflow data/**
 *.zip
 __pycache__
-writingPrompts/**
 *.wp_source
 *.wp_target
