@@ -278,7 +278,7 @@ def perturb_texts(data, mask_model, mask_tokenizer,
 if __name__=='__main__':
     perturb_options = ArgumentParser()
     perturb_options.add_argument('infile', help='where to read candidate passages from')
-    perturb_options.add_argument('-k', '--k_examples', help='num examples to load from infile')
+    perturb_options.add_argument('-k', '--k_examples', help='num examples to load from infile', type=int)
     perturb_options.add_argument('-n', '--n_perturbations', help='number of perturbations to perform in experiments', type=int, default=5)
     perturb_options.add_argument('-s', '--span_length', help='span of tokens to mask in candidate passages', type=int, default=2)
     perturb_options.add_argument('-p', '--perturb_pct', help='percentage (as decimal) of each passage to perturb', type=float, default=0.15)
