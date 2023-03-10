@@ -10,6 +10,7 @@ import numpy as np
 import tqdm
 import transformers
 import re
+import torch
 from torch import cuda
 import functools
 from argparse import ArgumentParser
@@ -126,7 +127,7 @@ def count_masks(texts):
     """
     return [len([x for x in text.split() if x.startswith("<extra_id_")]) for text in texts]
 
-
+@torch.no_grad()
 def replace_masks(masked_texts, mask_model: transformers.T5ForConditionalGeneration, mask_tokenizer: transformers.T5Tokenizer):
     """
     DESC: return a sample from T5 mask_model for each masked span
@@ -274,7 +275,6 @@ def perturb_texts(data, mask_model, mask_tokenizer,
 
     p_sampled_text = perturb_fn([x for x in sampled_text for _ in range(n_perturbations)])
     p_original_text = perturb_fn([x for x in original_text for _ in range(n_perturbations)])
-    # START unchecked function
     for _ in range(n_perturbation_rounds - 1):
         try:
             p_sampled_text, p_original_text = perturb_fn(p_sampled_text), perturb_fn(p_original_text)
