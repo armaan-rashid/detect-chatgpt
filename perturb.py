@@ -1,12 +1,60 @@
+"""
+This file contains the perturbation functionality.
+Can be used in other modules or can also be run as
+its own script. Largely adapted from Mitchell et al.'s
+original implementation @ https://github.com/eric-mitchell/detect-gpt.
+"""
+
+
 import numpy as np
 import tqdm
 import transformers
 import re
 from torch import cuda
+import functools
+from argparse import ArgumentParser
+from data_processing import load_data
+import pandas as pd
+
 
 DEVICE = 'cuda' if cuda.is_available() else 'cpu'
 MASK_PATTERN = re.compile(r"<extra_id_\d+>")
 
+
+def load_perturbed(filename, n=0):
+    """
+    Load perturbed examples from a csv file.
+    DataFrame stored in file expected to be in 
+    format where for each original, sampled candidate
+    passage, the candidate is first in column with all
+    perturbations following.
+    PARAMS:
+    filename: (.csv) where dataFrame is stored
+    n: number of perturbations to load
+    """
+    perturbed = pd.read_csv(filename)
+    c = len(perturbed.columns) // 2  # number of candidate passages
+    n = min(n, len(perturbed) - 1) if n != 0 else len(perturbed) - 1
+    perturbed = [{"original": perturbed[f'o{i}'][0], "sampled": perturbed[f's{i}'][0],
+                "perturbed_sampled": perturbed[f's{i}'][1:n+1].values.tolist(),
+                "perturbed_original": perturbed[f'o{i}'][1:n+1].values.tolist()} 
+                for i in range(1,c+1)]
+    return perturbed
+
+
+def write_perturbed(perturbed, outfile):
+    """
+    Write perturbations to a file, given a list of dictionaries
+    with original text, sampled text, and perturbed versions of each.
+    Opposite of load_perturbed.
+    """
+    original_cols = [[p['original']] + p['perturbed_original'] for p in perturbed]
+    sampled_cols = [[p['sampled']] + p['perturbed_sampled'] for p in perturbed]
+    orig_dict = { f'o{i+1}' : col for i, col in enumerate(original_cols)}
+    sampled_dict = { f's{i+1}' : col for i, col in enumerate(sampled_cols)}
+    df = pd.DataFrame(data={**orig_dict, **sampled_dict})
+    df.to_csv(outfile, index=False)
+    return df
 
 def tokenize_and_mask(text, span_length, pct, ceil_pct=False, buffer_size=1):
     """
@@ -181,3 +229,72 @@ def generate_perturbations(texts, span_length, pct, mask_model, mask_tokenizer, 
     for i in tqdm.tqdm(range(0, len(texts), chunk_size), desc="Applying perturbations"):
         outputs.extend(generate_perturbations_(texts[i:i + chunk_size], span_length, pct, mask_model, mask_tokenizer, ceil_pct=ceil_pct))
     return outputs
+
+
+def perturb_texts(data, mask_model, mask_tokenizer, 
+                  perturb_pct=0.3, span_length=2, n_perturbations=1, n_perturbation_rounds=1):
+    """ 
+    DESC: This function takes in the data and perturbs it according to options passed in.
+    PARAMS:
+    data: dictionary of human and chatGPT samples. Must have 'original' and 'sampled' keys as such, 
+        with lists of strings stored at each location.
+    pct_words_masked, span_length: percentage of text to perturb and length of spans to perturb resp.
+    n_perturbations: number of perturbed texts to generate for each example
+    n_perturbation_rounds: number of times to try perturbing
+    RETURNS: 
+    perturbed, a List[dict] for every original vs. sampled pair. Each dict is of the form:
+    {
+        'original': the orig. human passage
+        'sampled': ChatGPT passage
+        'perturbed_original': a List of perturbed passages of the original
+        'perturbed_sampled': a List of perturbed ChatGPT passages
+    }
+    """
+    original_text = data["original"]
+    sampled_text = data["sampled"]
+
+    perturb_fn = functools.partial(generate_perturbations, span_length=span_length, pct=perturb_pct,
+                                   mask_model=mask_model, mask_tokenizer=mask_tokenizer)
+
+    p_sampled_text = perturb_fn([x for x in sampled_text for _ in range(n_perturbations)])
+    p_original_text = perturb_fn([x for x in original_text for _ in range(n_perturbations)])
+    # START unchecked function
+    for _ in range(n_perturbation_rounds - 1):
+        try:
+            p_sampled_text, p_original_text = perturb_fn(p_sampled_text), perturb_fn(p_original_text)
+        except AssertionError:
+            break
+
+    assert len(p_sampled_text) == len(sampled_text) * n_perturbations, f"Expected {len(sampled_text) * n_perturbations} perturbed samples, got {len(p_sampled_text)}"
+    assert len(p_original_text) == len(original_text) * n_perturbations, f"Expected {len(original_text) * n_perturbations} perturbed samples, got {len(p_original_text)}"
+
+    perturbed = [{"original": original_text[idx], "sampled": sampled_text[idx],
+                "perturbed_sampled": p_sampled_text[idx * n_perturbations: (idx + 1) * n_perturbations],
+                "perturbed_original": p_original_text[idx * n_perturbations: (idx + 1) * n_perturbations]} 
+                for idx in range(len(original_text))]
+    print(f'Created {n_perturbations * 2 * len(perturbed)} texts.')
+    return perturbed
+
+if __name__=='__main__':
+    perturb_options = ArgumentParser()
+    perturb_options.add_argument('infile', help='where to read candidate passages from')
+    perturb_options.add_argument('-n', '--n_perturbations', help='number of perturbations to perform in experiments', type=int, default=5)
+    perturb_options.add_argument('-s', '--span_length', help='span of tokens to mask in candidate passages', type=int, default=2)
+    perturb_options.add_argument('-p', '--perturb_pct', help='percentage (as decimal) of each passage to perturb', type=float, default=0.15)
+    perturb_options.add_argument('-r', '--n_perturbation_rounds', help='number of times to attempt perturbations', type=int, default=1)
+    perturb_options.add_argument('-w', '--writefile', help='file to write perturbed examples to')
+
+    args = perturb_options.parse_args()
+
+    data = load_data(args.infile)
+    mask_model = transformers.AutoModelForSeq2SeqLM.from_pretrained('t5-3b') # can be cached. 
+    try:
+        n_positions = mask_model.config.n_positions
+    except AttributeError:
+        n_positions = 512
+    mask_tokenizer = transformers.AutoTokenizer.from_pretrained('t5-3b', model_max_length=n_positions)
+    print('MOVING MASK MODEL TO GPU...', end='', flush=True)
+    mask_model.to(DEVICE)
+    print('DONE')
+    perturbed = perturb_texts(data, mask_model, mask_tokenizer, args.perturb_pct, args.span_length, args.n_perturbations, args.n_perturbation_rounds)
+    write_perturbed(perturbed, args.writefile)

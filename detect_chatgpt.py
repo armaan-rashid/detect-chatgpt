@@ -1,19 +1,19 @@
 """
-Project model.
+Project model. Again, some of the funcs adapted from
+https://github.com/eric-mitchell/detect-gpt and noted as such.
 """
 
 from argparse import ArgumentParser
 import transformers
-import functools
 from torch import cuda, manual_seed
 import torch
 import numpy as np
 import tqdm
 import query_probabilities as qp
 import evaluation 
-import pandas as pd
-from perturb import generate_perturbations
+from perturb import perturb_texts, load_perturbed, write_perturbed
 from matplotlib import pyplot as plt
+from data_processing import load_data
 import os
 
 DEVICE = 'cuda' if cuda.is_available() else 'cpu'
@@ -22,56 +22,6 @@ MASK_FILLING_MODEL = "t5-3b"    # use for all experiments
 manual_seed(0)
 np.random.seed(0)
 
-def load_data(filename, k=None):
-    """
-    Load k examples of data from file into dict format.
-    Expects that the dfs loaded in has 'original, sampled'
-    columns and ignores other columns.
-    """
-    df = pd.read_csv(filename)
-    assert 'original' in df.columns and 'sampled' in df.columns, 'files need to have original and sampled cols'
-    print(f'Loading data from {filename}.')
-    conv = {'original': df['original'].values.tolist(),
-            'sampled': df['sampled'].values.tolist()}
-    if k is None:
-        k = len(conv['original'])
-    conv['original'] = conv['original'][:min(k, len(conv['original']))]
-    conv['sampled'] = conv['sampled'][:min(k, len(conv['sampled']))]
-    return conv
-
-def load_perturbed(filename, n=0):
-    """
-    Load perturbed examples from a csv file.
-    DataFrame stored in file expected to be in 
-    format where for each original, sampled candidate
-    passage, the candidate is first in column with all
-    perturbations following.
-    PARAMS:
-    filename: (.csv) where dataFrame is stored
-    n: number of perturbations to load
-    """
-    perturbed = pd.read_csv(filename)
-    c = len(perturbed.columns) // 2  # number of candidate passages
-    n = min(n, len(perturbed) - 1) if n != 0 else len(perturbed) - 1
-    perturbed = [{"original": perturbed[f'o{i}'][0], "sampled": perturbed[f's{i}'][0],
-                "perturbed_sampled": perturbed[f's{i}'][1:n+1].values.tolist(),
-                "perturbed_original": perturbed[f'o{i}'][1:n+1].values.tolist()} 
-                for i in range(1,c+1)]
-    return perturbed
-
-
-def write_perturbed(perturbed, outfile):
-    """
-    Write perturbations to a file, given a list of dictionaries
-    with original text, sampled text, and perturbed versions of each.
-    """
-    original_cols = [[p['original']] + p['perturbed_original'] for p in perturbed]
-    sampled_cols = [[p['sampled']] + p['perturbed_sampled'] for p in perturbed]
-    orig_dict = { f'o{i+1}' : col for i, col in enumerate(original_cols)}
-    sampled_dict = { f's{i+1}' : col for i, col in enumerate(sampled_cols)}
-    df = pd.DataFrame(data={**orig_dict, **sampled_dict})
-    df.to_csv(outfile, index=False)
-    return df
 
 def load_mask_model(mask_model_name):
     """
@@ -113,53 +63,6 @@ def load_huggingface_model_and_tokenizer(model: str, dataset: str):
     base_tokenizer.pad_token_id = base_tokenizer.eos_token_id
 
     return base_model, base_tokenizer
-
-
-
-
-def perturb_texts(data, mask_model, mask_tokenizer, 
-                  perturb_pct=0.3, span_length=2, n_perturbations=1, n_perturbation_rounds=1):
-    """ 
-    DESC: This function takes in the data and perturbs it according to options passed in.
-    PARAMS:
-    data: dictionary of human and chatGPT samples. Must have 'original' and 'sampled' keys as such, 
-        with lists of strings stored at each location.
-    pct_words_masked, span_length: percentage of text to perturb and length of spans to perturb resp.
-    n_perturbations: number of perturbed texts to generate for each example
-    n_perturbation_rounds: number of times to try perturbing
-    RETURNS: 
-    perturbed, a List[dict] for every original vs. sampled pair. Each dict is of the form:
-    {
-        'original': the orig. human passage
-        'sampled': ChatGPT passage
-        'perturbed_original': a List of perturbed passages of the original
-        'perturbed_sampled': a List of perturbed ChatGPT passages
-    }
-    """
-    original_text = data["original"]
-    sampled_text = data["sampled"]
-
-    perturb_fn = functools.partial(generate_perturbations, span_length=span_length, pct=perturb_pct,
-                                   mask_model=mask_model, mask_tokenizer=mask_tokenizer)
-
-    p_sampled_text = perturb_fn([x for x in sampled_text for _ in range(n_perturbations)])
-    p_original_text = perturb_fn([x for x in original_text for _ in range(n_perturbations)])
-    # START unchecked function
-    for _ in range(n_perturbation_rounds - 1):
-        try:
-            p_sampled_text, p_original_text = perturb_fn(p_sampled_text), perturb_fn(p_original_text)
-        except AssertionError:
-            break
-
-    assert len(p_sampled_text) == len(sampled_text) * n_perturbations, f"Expected {len(sampled_text) * n_perturbations} perturbed samples, got {len(p_sampled_text)}"
-    assert len(p_original_text) == len(original_text) * n_perturbations, f"Expected {len(original_text) * n_perturbations} perturbed samples, got {len(p_original_text)}"
-
-    perturbed = [{"original": original_text[idx], "sampled": sampled_text[idx],
-                "perturbed_sampled": p_sampled_text[idx * n_perturbations: (idx + 1) * n_perturbations],
-                "perturbed_original": p_original_text[idx * n_perturbations: (idx + 1) * n_perturbations]} 
-                for idx in range(len(original_text))]
-    print(f'Created {n_perturbations * 2 * len(perturbed)} texts.')
-    return perturbed
 
 
 def query_lls(results, openai_model=None, openai_opts=None, base_tokenizer=None, base_model=None):
@@ -268,7 +171,6 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--directory', help='directory to save plots, should contain info abt query models and dataset')
     parser.add_argument('-k', '--k_examples', help='load k examples from file', type=int)
     parser.add_argument('--perturbed', action='store_true', help='specify to indicate perturbations already in infile')
-    parser.add_argument('--no_run', action='store_true', help='do not run experiments, stop after perturbations')
 
     perturb_options = parser.add_argument_group()
     perturb_options.add_argument('-n', '--n_perturbations', help='number of perturbations to perform in experiments', type=int, default=5)
@@ -311,9 +213,6 @@ if __name__ == '__main__':
 
         if args.writefile:  # write the perturbations if file specified
             write_perturbed(perturbed, args.writefile)
-
-    if args.no_run:
-        quit()
 
     else:
         perturbed = load_perturbed(args.infile, args.n_perturbations)

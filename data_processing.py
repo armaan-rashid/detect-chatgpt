@@ -3,7 +3,7 @@ This file contains some basic data processing utility functions.
 Can be run as a script to either repair unfinished data, merge data
 or load data from files into the main ChatGPT script. 
 Some of these functions are from Mitchell et al.'s 
-detectGPT and noted. Their original code can be found here:
+detectGPT and noted as such. Their original code can be found here:
 https://github.com/eric-mitchell/detect-gpt
 """
 
@@ -20,6 +20,22 @@ SYSTEM = {'role': 'system', 'content': 'You are a helpful assistant.'}   # a def
 CONTINUE = {'role': 'user', 'content': 'Please, continue.'}
 FAILSTRING = 'Failed response.'
 
+def load_data(filename, k=None):
+    """
+    Load k examples of data from file into dict format.
+    Expects that the dfs loaded in has 'original, sampled'
+    columns and ignores other columns.
+    """
+    df = pd.read_csv(filename)
+    assert 'original' in df.columns and 'sampled' in df.columns, 'files need to have original and sampled cols'
+    print(f'Loading data from {filename}.')
+    conv = {'original': df['original'].values.tolist(),
+            'sampled': df['sampled'].values.tolist()}
+    if k is None:
+        k = len(conv['original'])
+    conv['original'] = conv['original'][:min(k, len(conv['original']))]
+    conv['sampled'] = conv['sampled'][:min(k, len(conv['sampled']))]
+    return conv
 
 def concat_cols(row, cols):
     string = ''
