@@ -38,14 +38,10 @@ def match_lengths(data: pd.DataFrame, col1: str, col2: str):
         orig_split = row[col1].split()
         sampled_split = row[col2].split()
         trunc = min(len(orig_split), len(sampled_split))
-        row[col1] = orig_split[:trunc].join(' ')
-        row[col2] = sampled_split[:trunc].join(' ')
+        row[col1] = ' '.join(orig_split[:trunc])
+        row[col2] = ' '.join(sampled_split[:trunc])
     return data
 
-
-def process_prompt(prompt):
-    """For WritingPrompts data, from Mitchell et al."""
-    return prompt.replace('[ WP ]', '').replace('[ OT ]', '')
 
 
 def process_spaces(story: str):
@@ -75,7 +71,7 @@ def process_spaces(story: str):
         '  ', ' ').strip()
 
 
-def repair_dataframe(data: pd.DataFrame, temp: float, min_words=250):
+def repair_dataframe(data: pd.DataFrame, temp: float, min_words=200):
     """
     DESC: Repair dataframe that has incomplete responses from ChatGPT.
     PARAMS:

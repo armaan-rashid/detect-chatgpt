@@ -41,18 +41,37 @@ def load_data(filename, k=None):
 
 def load_perturbed(filename, n=0):
     """
-    Load perturbed examples from a file.
-    TODO: write this fn
+    Load perturbed examples from a csv file.
+    DataFrame stored in file expected to be in 
+    format where for each original, sampled candidate
+    passage, the candidate is first in column with all
+    perturbations following.
+    PARAMS:
+    filename: (.csv) where dataFrame is stored
+    n: number of perturbations to load
     """
     perturbed = pd.read_csv(filename)
-    k = len(perturbed.columns) // 2  # number of candidate passages
+    c = len(perturbed.columns) // 2  # number of candidate passages
     n = min(n, len(perturbed) - 1) if n != 0 else len(perturbed) - 1
     perturbed = [{"original": perturbed[f'o{i}'][0], "sampled": perturbed[f's{i}'][0],
                 "perturbed_sampled": perturbed[f's{i}'][1:n+1].values.tolist(),
                 "perturbed_original": perturbed[f'o{i}'][1:n+1].values.tolist()} 
-                for i in range(1,k+1)]
+                for i in range(1,c+1)]
     return perturbed
 
+
+def write_perturbed(perturbed, outfile):
+    """
+    Write perturbations to a file, given a list of dictionaries
+    with original text, sampled text, and perturbed versions of each.
+    """
+    original_cols = [[p['original']] + p['perturbed_original'] for p in perturbed]
+    sampled_cols = [[p['sampled']] + p['perturbed_sampled'] for p in perturbed]
+    orig_dict = { f'o{i+1}' : col for i, col in enumerate(original_cols)}
+    sampled_dict = { f's{i+1}' : col for i, col in enumerate(sampled_cols)}
+    df = pd.DataFrame(data={**orig_dict, **sampled_dict})
+    df.to_csv(outfile, index=False)
+    return df
 
 def load_mask_model(mask_model_name):
     """
@@ -249,6 +268,7 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--directory', help='directory to save plots, should contain info abt query models and dataset')
     parser.add_argument('-k', '--k_examples', help='load k examples from file', type=int)
     parser.add_argument('--perturbed', action='store_true', help='specify to indicate perturbations already in infile')
+    parser.add_argument('--no_run', action='store_true', help='do not run experiments, stop after perturbations')
 
     perturb_options = parser.add_argument_group()
     perturb_options.add_argument('-n', '--n_perturbations', help='number of perturbations to perform in experiments', type=int, default=5)
@@ -290,11 +310,10 @@ if __name__ == '__main__':
         perturbed = perturb_texts(data, mask_tokenizer, mask_model, **hyperparameters)
 
         if args.writefile:  # write the perturbations if file specified
-            original_cols = [[p['original']] + p['perturbed_original'] for p in perturbed]
-            sampled_cols = [[p['sampled']] + p['perturbed_sampled'] for p in perturbed]
-            orig_dict = { f'o{i+1}' : col for i, col in enumerate(original_cols)}
-            sampled_dict = { f's{i+1}' : col for i, col in enumerate(sampled_cols)}
-            pd.DataFrame(data={**orig_dict, **sampled_dict}).to_csv(args.writefile, index=False)
+            write_perturbed(perturbed, args.writefile)
+
+    if args.no_run:
+        quit()
 
     else:
         perturbed = load_perturbed(args.infile, args.n_perturbations)
