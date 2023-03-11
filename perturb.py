@@ -248,7 +248,7 @@ def generate_perturbations(texts, span_length, pct, mask_model, mask_tokenizer, 
     return outputs
 
 
-def perturb_texts(data, mask_model, mask_tokenizer, 
+def perturb_texts(data, mask_model, mask_tokenizer, chunk_size=50,
                   perturb_pct=0.3, span_length=2, n_perturbations=1, n_perturbation_rounds=1):
     """ 
     DESC: This function takes in the data and perturbs it according to options passed in.
@@ -271,7 +271,7 @@ def perturb_texts(data, mask_model, mask_tokenizer,
     sampled_text = data["sampled"]
 
     perturb_fn = functools.partial(generate_perturbations, span_length=span_length, pct=perturb_pct,
-                                   mask_model=mask_model, mask_tokenizer=mask_tokenizer)
+                                   mask_model=mask_model, mask_tokenizer=mask_tokenizer, chunk_size=chunk_size)
 
     p_sampled_text = perturb_fn([x for x in sampled_text for _ in range(n_perturbations)])
     p_original_text = perturb_fn([x for x in original_text for _ in range(n_perturbations)])
@@ -300,6 +300,7 @@ if __name__=='__main__':
     perturb_options.add_argument('-p', '--perturb_pct', help='percentage (as decimal) of each passage to perturb', type=float, default=0.15)
     perturb_options.add_argument('-r', '--n_perturbation_rounds', help='number of times to attempt perturbations', type=int, default=1)
     perturb_options.add_argument('-w', '--writefile', help='file to write perturbed examples to')
+    perturb_options.add_argument('-c', '--chunk_size', help='for GPU optimization!', type=int, default=50)
 
     args = perturb_options.parse_args()
 
@@ -314,5 +315,6 @@ if __name__=='__main__':
     print('MOVING MASK MODEL TO GPU...', end='', flush=True)
     mask_model.to(DEVICE)
     print('DONE')
-    perturbed = perturb_texts(data, mask_model, mask_tokenizer, args.perturb_pct, args.span_length, args.n_perturbations, args.n_perturbation_rounds)
+    perturbed = perturb_texts(data, mask_model, mask_tokenizer, args.chunk_size,
+                              args.perturb_pct, args.span_length, args.n_perturbations, args.n_perturbation_rounds)
     write_perturbed(perturbed, args.writefile)
