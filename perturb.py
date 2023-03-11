@@ -304,6 +304,7 @@ if __name__=='__main__':
     args = perturb_options.parse_args()
 
     data = load_data(args.infile, args.k_examples)
+    print('Loading T5-3B mask model and tokenizer...')
     mask_model = transformers.AutoModelForSeq2SeqLM.from_pretrained('t5-3b') # can be cached. 
     try:
         n_positions = mask_model.config.n_positions

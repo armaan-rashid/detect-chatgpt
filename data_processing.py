@@ -11,14 +11,13 @@ import pandas as pd
 from argparse import ArgumentParser
 import openai
 import os
-
+import sys
 
 # housekeeping some global vars
 USAGE = 0
 FAILSTRING = 'Failed response.'
 SYSTEM = {'role': 'system', 'content': 'You are a helpful assistant.'}   # a default system msg to use for all prompts 
 CONTINUE = {'role': 'user', 'content': 'Please, continue.'}
-FAILSTRING = 'Failed response.'
 
 def load_data(filename, k=None):
     """
@@ -87,7 +86,7 @@ def process_spaces(story: str):
         '  ', ' ').strip()
 
 
-def repair_dataframe(data: pd.DataFrame, temp: float, min_words=200):
+def repair_dataframe(data: pd.DataFrame, temp: float, min_words=200, prompt_msg=''):
     """
     DESC: Repair dataframe that has incomplete responses from ChatGPT.
     PARAMS:
@@ -100,12 +99,12 @@ def repair_dataframe(data: pd.DataFrame, temp: float, min_words=200):
     for _, row in data.iterrows():
         if row['responses'] == FAILSTRING:
             try: 
-                prompt = row['prompts']
+                prompt = prompt_msg + row['prompts']
                 response = prompt_ChatGPT(prompt, temp, min_words)
                 row['responses'] = response
                 count += 1
             except:
-                print(f'The prompt: {prompt} did not successfully get a response from ChatGPT.\n')
+                print(f'The prompt: {prompt} did not successfully get a response from ChatGPT, raising the exception {sys.exception()!r}\n')
                 fail += 1
                 continue
     print(f'Successfully got {count} responses from ChatGPT, failed to get {fail} responses.')
@@ -186,7 +185,8 @@ if __name__=='__main__':
     repair = parser.add_argument_group()
     repair.add_argument('--repair_file', help='file with data that needs to be repaired')
     repair.add_argument('--temp', help='for ChatGPT prompting')
-    repair.add_argument('--min_words', help='for ChatGPT prompting'),
+    repair.add_argument('--min_words', help='for ChatGPT prompting')
+    repair.add_argument('--prompt_msg', help='message to append to beginning of prompt during repair')
     strip = parser.add_argument_group()
     strip.add_argument('--strip_file', help='file to strip from')
     strip.add_argument('--strip_col', help='col to strip from')
