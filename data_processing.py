@@ -11,7 +11,6 @@ import pandas as pd
 from argparse import ArgumentParser
 import openai
 import os
-import sys
 
 # housekeeping some global vars
 USAGE = 0
@@ -57,7 +56,16 @@ def match_lengths(data: pd.DataFrame, col1: str, col2: str):
         row[col2] = ' '.join(sampled_split[:trunc])
     return data
 
-
+def remove_failed_responses(file):
+    """
+    Erase the failed responses that ChatGPT couldn't generate.
+    """
+    df = pd.read_csv(file)
+    idxs = [i for i, row in df.iterrows() if FAILSTRING in row['sampled']]
+    df.drop(labels=idxs, inplace=True)
+    df.reset_index(drop=True, inplace=True)
+    df.to_csv(file, index=False)
+    print(f'removed {len(idxs)} responses from {file}')
 
 def process_spaces(story: str):
     """Basic processing function, adapted from Mitchell et al."""
@@ -104,7 +112,7 @@ def repair_dataframe(data: pd.DataFrame, temp: float, min_words=200, prompt_msg=
                 row['responses'] = response
                 count += 1
             except:
-                print(f'The prompt: {prompt} did not successfully get a response from ChatGPT, raising the exception {sys.exception()!r}\n')
+                print(f'The prompt: {prompt} did not successfully get a response from ChatGPT.\n')
                 fail += 1
                 continue
     print(f'Successfully got {count} responses from ChatGPT, failed to get {fail} responses.')
@@ -117,9 +125,7 @@ def prompt_ChatGPT(prompt: str, temp: float, min_words=250, postprocess=process_
     CALLED_BY: generate() funcs
     """
     global USAGE
-    response_len = 0
     msgs = [SYSTEM, {'role': 'user', 'content': prompt}]
-
     response_len = 0
 
     while response_len < min_words:
@@ -175,7 +181,7 @@ def strip_text(file, col, strip_msg):
 
 if __name__=='__main__':
     parser = ArgumentParser(prog='process data already retrieved, in different ways')
-    parser.add_argument('task', help='what you want to do', choices=['merge', 'repair', 'strip'])
+    parser.add_argument('task', help='what you want to do', choices=['merge', 'repair', 'strip', 'remove'])
     merge = parser.add_argument_group()
     merge.add_argument('--orig_file', help='file with human data')
     merge.add_argument('--orig_cols', help='cols to grab from orig_file', type=str)
@@ -184,13 +190,15 @@ if __name__=='__main__':
     merge.add_argument('--outfile', help='where to store new merged data')
     repair = parser.add_argument_group()
     repair.add_argument('--repair_file', help='file with data that needs to be repaired')
-    repair.add_argument('--temp', help='for ChatGPT prompting')
-    repair.add_argument('--min_words', help='for ChatGPT prompting')
+    repair.add_argument('--temp', help='for ChatGPT prompting', type=float)
+    repair.add_argument('--min_words', help='for ChatGPT prompting', type=int)
     repair.add_argument('--prompt_msg', help='message to append to beginning of prompt during repair')
     strip = parser.add_argument_group()
     strip.add_argument('--strip_file', help='file to strip from')
     strip.add_argument('--strip_col', help='col to strip from')
     strip.add_argument('--strip_msg', help='text to strip')
+    remove = parser.add_argument_group()
+    remove.add_argument('--remove_files', help='files with rows to remove', nargs='*')
 
     parser.add_argument('-v', '--verbose', action='store_true', help='print while doing stuff')
     args = parser.parse_args()
@@ -205,11 +213,15 @@ if __name__=='__main__':
     elif args.task == 'repair':
         openai.api_key = os.getenv('OPENAI_API_KEY')
         broken = pd.read_csv(args.repair_file)
-        fixed = repair_dataframe(broken, args.temp, args.min_words)
+        fixed = repair_dataframe(broken, args.temp, args.min_words, args.prompt_msg)
         fixed.to_csv(args.repair_file, index=False)
         print(f'Used {USAGE} tokens in this run.')
 
     elif args.task == 'strip':
         assert args.strip_file and args.strip_col and args.strip_msg
         strip_text(args.strip_file, args.strip_col, args.strip_msg)
+
+    elif args.task == 'remove':
+        for file in args.remove_files:
+            remove_failed_responses(file)
 
