@@ -67,6 +67,9 @@ def load_huggingface_model_and_tokenizer(models: str, dataset: str):
             base_tokenizer.pad_token_id = base_tokenizer.eos_token_id
         except:
             base_tokenizer.pad_token_id = [base_tokenizer.eos_token_id]
+        print(f'MOVING HF MODEL {model} AND TOKENIZER TO GPU.')
+        base_model.to(DEVICE)
+        base_tokenizer.to(DEVICE)
         base_models.append(base_model)
         base_tokenizers.append(base_tokenizer)
 
