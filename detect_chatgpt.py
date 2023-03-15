@@ -73,7 +73,6 @@ def load_huggingface_model_and_tokenizer(models: str, dataset: str):
 
 def query_lls(results, openai_models=None, openai_opts=None, base_tokenizers=None, base_models=None):
     """
-    TODO: make this function work for multiple query models.
     DESC: Given passages and their perturbed versions, query log likelihoods for all of them
     from the query models.
     PARAMS:
@@ -266,7 +265,7 @@ if __name__ == '__main__':
             write_perturbed(perturbed, args.writefile)
 
     else:
-        perturbed = load_perturbed(args.infile, args.n_perturbations)
+        perturbed = load_perturbed(args.infile, args.n_perturbations, args.k_examples)
 
     openai_models, openai_opts = None, None
     if args.openai_query_models:
