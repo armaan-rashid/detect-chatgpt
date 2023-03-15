@@ -68,7 +68,7 @@ def load_huggingface_model_and_tokenizer(models: str, dataset: str):
         except:
             base_tokenizer.pad_token_id = [base_tokenizer.eos_token_id]
         base_models.append(base_model)
-        base_tokenizers.append(base_tokenizers)
+        base_tokenizers.append(base_tokenizer)
 
     return base_models, base_tokenizers
 
