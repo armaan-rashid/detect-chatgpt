@@ -44,7 +44,7 @@ def load_mask_model(mask_model_name):
 
 def load_huggingface_model_and_tokenizer(models: str, dataset: str):
     """
-    DESC: Load and return a huggingface model with model name.
+    DESC: Load and return huggingface models with model names.
     """
     base_models = []
     base_tokenizers = []
@@ -112,10 +112,7 @@ def query_lls(results, openai_models=None, openai_opts=None, base_tokenizers=Non
         all_results.append(results_copy)
 
     # run for all hugging facemodels
-    for i in range(0, len(base_tokenizers)): 
-        base_tokenizer = base_tokenizers[i]
-        base_model = base_models[i]
-
+    for base_tokenizer, base_model in zip(base_tokenizers, base_models):
         results_copy = copy.deepcopy(results)
         for res in tqdm.tqdm(results_copy, desc="Computing log likelihoods"):
             p_sampled_ll = qp.get_lls(res["perturbed_sampled"], None, base_tokenizer, base_model, None)
