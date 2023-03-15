@@ -38,7 +38,7 @@ def load_data(filename, k=None):
 
 
 
-def load_perturbed(filename, n=0):
+def load_perturbed(filename, n=0, k=0):
     """
     Load perturbed examples from a csv file.
     DataFrame stored in file expected to be in 
@@ -51,11 +51,12 @@ def load_perturbed(filename, n=0):
     """
     perturbed = pd.read_csv(filename)
     c = len(perturbed.columns) // 2  # number of candidate passages
+    k = min(c, k) if k != 0 else c
     n = min(n, len(perturbed) - 1) if n != 0 else len(perturbed) - 1
     perturbed = [{"original": perturbed[f'o{i}'][0], "sampled": perturbed[f's{i}'][0],
                 "perturbed_sampled": perturbed[f's{i}'][1:n+1].values.tolist(),
                 "perturbed_original": perturbed[f'o{i}'][1:n+1].values.tolist()} 
-                for i in range(1,c+1)]
+                for i in range(1,k+1)]
     return perturbed
 
 
