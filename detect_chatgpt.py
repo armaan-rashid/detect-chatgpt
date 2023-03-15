@@ -15,6 +15,7 @@ from perturb import perturb_texts, load_perturbed, write_perturbed
 from matplotlib import pyplot as plt
 from data_processing import load_data
 import os
+import copy
 
 DEVICE = 'cuda' if cuda.is_available() else 'cpu'
 MASK_FILLING_MODEL = "t5-3b"    # use for all experiments
@@ -65,14 +66,14 @@ def load_huggingface_model_and_tokenizer(model: str, dataset: str):
     return base_model, base_tokenizer
 
 
-def query_lls(results, openai_model=None, openai_opts=None, base_tokenizer=None, base_model=None):
+def query_lls(results, openai_models=None, openai_opts=None, base_tokenizer=None, base_model=None):
     """
     TODO: make this function work for multiple query models.
     DESC: Given passages and their perturbed versions, query log likelihoods for all of them
     from the query models.
     PARAMS:
     results: a List[Dict] where each dict has original passage, sample passage, and perturbed versions of each
-    openai_model: name of openai model as str
+    openai_models: list of openai models 
     base_tokenizer, base_model: if an HF model used for querying, the actual model and tokenizer
     RETURNS:
     results, but with additional keys in each dict as follows:
@@ -83,34 +84,38 @@ def query_lls(results, openai_model=None, openai_opts=None, base_tokenizer=None,
         'perturbed_sampled_ll_std','perturbed_original_ll_std': std. dev of ll over all perturbations, for sampled/orig.
     }
     """
+    all_results = []
+    for openai_model in openai_models: 
+        results_copy = copy.deepcopy(results)
+        for res in tqdm.tqdm(results_copy, desc="Computing log likelihoods"):
+            p_sampled_ll = qp.get_lls(res["perturbed_sampled"], openai_model, base_tokenizer, base_model, **openai_opts)
+            p_original_ll = qp.get_lls(res["perturbed_original"], openai_model, base_tokenizer, base_model, **openai_opts)
+            res["original_ll"] = qp.get_ll(res["original"], openai_model, base_tokenizer, base_model, **openai_opts)
+            res["sampled_ll"] = qp.get_ll(res["sampled"], openai_model, base_tokenizer, base_model, **openai_opts)
+            res["all_perturbed_sampled_ll"] = p_sampled_ll
+            res["all_perturbed_original_ll"] = p_original_ll
+            res["perturbed_sampled_ll"] = np.mean(p_sampled_ll)
+            res["perturbed_original_ll"] = np.mean(p_original_ll)
+            res["perturbed_sampled_ll_std"] = np.std(p_sampled_ll) if len(p_sampled_ll) > 1 else 1
+            res["perturbed_original_ll_std"] = np.std(p_original_ll) if len(p_original_ll) > 1 else 1
 
-    for res in tqdm.tqdm(results, desc="Computing log likelihoods"):
-        p_sampled_ll = qp.get_lls(res["perturbed_sampled"], openai_model, base_tokenizer, base_model, **openai_opts)
-        p_original_ll = qp.get_lls(res["perturbed_original"], openai_model, base_tokenizer, base_model, **openai_opts)
-        res["original_ll"] = qp.get_ll(res["original"], openai_model, base_tokenizer, base_model, **openai_opts)
-        res["sampled_ll"] = qp.get_ll(res["sampled"], openai_model, base_tokenizer, base_model, **openai_opts)
-        res["all_perturbed_sampled_ll"] = p_sampled_ll
-        res["all_perturbed_original_ll"] = p_original_ll
-        res["perturbed_sampled_ll"] = np.mean(p_sampled_ll)
-        res["perturbed_original_ll"] = np.mean(p_original_ll)
-        res["perturbed_sampled_ll_std"] = np.std(p_sampled_ll) if len(p_sampled_ll) > 1 else 1
-        res["perturbed_original_ll_std"] = np.std(p_original_ll) if len(p_original_ll) > 1 else 1
-
-    tokens_used = qp.count_tokens()
-    print(f'This query used {tokens_used} tokens.')
-
-    return results
+        tokens_used = qp.count_tokens()
+        print(f'This query used {tokens_used} tokens.')
+        all_results.append(results_copy)
+    
+    return all_results
 
 
-def run_perturbation_experiment(results, criterion, hyperparameters, dataset):
+def run_perturbation_experiment(all_results, criterion, hyperparameters, dataset):
     """
     DESC: Given results of perturbations + probabilities, make probabilistic classification predictions for
     each candidate passage and then evaluate them!
 
     PARAMS:
-    results: List[Dict], where each dict contains an original passage, a ChatGPT passage,
-    all their perturbations, and the log probabilities for all these passages. See docstrings
-    of query_lls and perturb_texts for more info on what keys are in each dict.
+    all_results: List[List[Dict]], where each List[Dict] is the result from a single query model, 
+        and each dict contains an original passage, a ChatGPT passage,
+        all their perturbations, and the log probabilities for all these passages. See docstrings
+        of query_lls and perturb_texts for more info on what keys are in each dict.
     criterion: 'd' or 'z'. If the criterion is 'd' make a probabilistic pred. between 0 or 1 based on \
         the difference in log likelihoods between a passage and its perturbations. If it's 'z', use \
         the difference divided by the standard dev. of the lls over all perturbations: a z-score. 
@@ -119,36 +124,53 @@ def run_perturbation_experiment(results, criterion, hyperparameters, dataset):
     Dict with info and results about experiment!
     """
     # compute diffs with perturbed
-    predictions = {'real': [], 'samples': []}
-    for res in results:
-        if criterion == 'd':
-            print(f'Making predictions for difference criteria.')
-            predictions['real'].append(res['original_ll'] - res['perturbed_original_ll'])
-            predictions['samples'].append(res['sampled_ll'] - res['perturbed_sampled_ll'])
-        elif criterion == 'z':
-            print(f'Making predictions for z-score criteria.')
-            if res['perturbed_original_ll_std'] == 0:
-                res['perturbed_original_ll_std'] = 1
-                print("WARNING: std of perturbed original is 0, setting to 1")
-                print(f"Number of unique perturbed original texts: {len(set(res['perturbed_original']))}")
-                print(f"Original text: {res['original']}")
-            if res['perturbed_sampled_ll_std'] == 0:
-                res['perturbed_sampled_ll_std'] = 1
-                print("WARNING: std of perturbed sampled is 0, setting to 1")
-                print(f"Number of unique perturbed sampled texts: {len(set(res['perturbed_sampled']))}")
-                print(f"Sampled text: {res['sampled']}")
-            predictions['real'].append((res['original_ll'] - res['perturbed_original_ll']) / res['perturbed_original_ll_std'])
-            predictions['samples'].append((res['sampled_ll'] - res['perturbed_sampled_ll']) / res['perturbed_sampled_ll_std'])
+    all_predictions = []
+    for query_model_results in all_results: 
+        query_model_predictions = {'real': [], 'samples': []}
+        for res in query_model_results:
+            if criterion == 'd':
+                print(f'Making predictions for difference criteria.')
+                query_model_predictions['real'].append(res['original_ll'] - res['perturbed_original_ll'])
+                query_model_predictions['samples'].append(res['sampled_ll'] - res['perturbed_sampled_ll'])
+            elif criterion == 'z':
+                print(f'Making predictions for z-score criteria.')
+                if res['perturbed_original_ll_std'] == 0:
+                    res['perturbed_original_ll_std'] = 1
+                    print("WARNING: std of perturbed original is 0, setting to 1")
+                    print(f"Number of unique perturbed original texts: {len(set(res['perturbed_original']))}")
+                    print(f"Original text: {res['original']}")
+                if res['perturbed_sampled_ll_std'] == 0:
+                    res['perturbed_sampled_ll_std'] = 1
+                    print("WARNING: std of perturbed sampled is 0, setting to 1")
+                    print(f"Number of unique perturbed sampled texts: {len(set(res['perturbed_sampled']))}")
+                    print(f"Sampled text: {res['sampled']}")
+                query_model_predictions['real'].append((res['original_ll'] - res['perturbed_original_ll']) / res['perturbed_original_ll_std'])
+                query_model_predictions['samples'].append((res['sampled_ll'] - res['perturbed_sampled_ll']) / res['perturbed_sampled_ll_std'])
+        all_predictions.append(query_model_predictions)
 
-    fpr, tpr, roc_auc = evaluation.get_roc_metrics(predictions['real'], predictions['samples'])
-    p, r, pr_auc = evaluation.get_precision_recall_metrics(predictions['real'], predictions['samples'])
+    # composing model results by taking mean of all discrepancy scores
+    final_composed_predictions = {'real': [], 'samples': []}
+    for model_prediction in all_predictions: 
+        if len(final_composed_predictions['real']) == 0: 
+            final_composed_predictions['real'] = model_prediction['real']
+        else: 
+            final_composed_predictions['real'] = np.add(final_composed_predictions['real'], model_prediction['real'])
+        if len(final_composed_predictions['samples']) == 0: 
+            final_composed_predictions['samples'] = model_prediction['samples']
+        else: 
+            final_composed_predictions['samples'] = np.add(final_composed_predictions['samples'], model_prediction['samples'])
+    final_composed_predictions['real'] = [x / len(all_predictions) for x in final_composed_predictions['real']]
+    final_composed_predictions['samples'] = [x / len(all_predictions) for x in final_composed_predictions['samples']]
+
+    fpr, tpr, roc_auc = evaluation.get_roc_metrics(final_composed_predictions['real'], final_composed_predictions['samples'])
+    p, r, pr_auc = evaluation.get_precision_recall_metrics(final_composed_predictions['real'], final_composed_predictions['samples'])
     name = f'{dataset}_{"difference" if criterion == "d" else "z-score"}_{hyperparameters["n_perturbations"]}_{hyperparameters["perturb_pct"]}.'
     print(f"{name} ROC AUC: {roc_auc}, PR AUC: {pr_auc}")
     return {
         'name': name,
-        'predictions': predictions,
+        'predictions': final_composed_predictions,
         'info': hyperparameters,
-        'raw_results': results,
+        'raw_results': all_results,
         'metrics': {
             'roc_auc': roc_auc,
             'fpr': fpr,
@@ -166,7 +188,7 @@ if __name__ == '__main__':
     parser = ArgumentParser(prog='run detectChatGPT')
     parser.add_argument('dataset', help='name of dataset')
     parser.add_argument('infile', help='csv file: where to read data from')
-    parser.add_argument('query_model', help='model to be used for probability querying')
+    parser.add_argument('--query_models', help='models to be used for probability querying', nargs="+")
     parser.add_argument('-o', '--openai', action='store_true', help='specify if query model is an OpenAI model')
     parser.add_argument('-d', '--directory', help='directory to save plots, should contain info abt query models and dataset')
     parser.add_argument('-k', '--k_examples', help='load k examples from file', type=int)
@@ -218,11 +240,11 @@ if __name__ == '__main__':
         perturbed = load_perturbed(args.infile, args.n_perturbations)
 
     if args.openai:
-        results = query_lls(perturbed, openai_model=args.query_model, openai_opts=open_ai_hyperparams)
+        all_results = query_lls(perturbed, openai_models=args.query_models, openai_opts=open_ai_hyperparams)
     else: 
-        hf_model, hf_tokenizer = load_huggingface_model_and_tokenizer(args.query_model, args.dataset)
-        results = query_lls(perturbed, base_model=hf_model, base_tokenizer=hf_tokenizer)
-    experiments = [run_perturbation_experiment(results, criterion, hyperparameters, args.dataset) for criterion in ['z', 'd']]
+        hf_model, hf_tokenizer = load_huggingface_model_and_tokenizer(args.query_models, args.dataset)
+        all_results = query_lls(perturbed, base_model=hf_model, base_tokenizer=hf_tokenizer)
+    experiments = [run_perturbation_experiment(all_results, criterion, hyperparameters, args.dataset) for criterion in ['z', 'd']]
 
     # graph results, making sure the directory exists
     DIR = args.directory
@@ -233,6 +255,6 @@ if __name__ == '__main__':
     if not os.path.exists(f'{DIR}/{save_dir}'):
         os.makedirs(f'{DIR}/{save_dir}')
     plt.figure()
-    evaluation.save_roc_curves(experiments, args.query_model, f'{DIR}/{save_dir}')
+    evaluation.save_roc_curves(experiments, args.query_models, f'{DIR}/{save_dir}')
     evaluation.save_ll_histograms(experiments, f'{DIR}/{save_dir}')
     evaluation.save_llr_histograms(experiments, f'{DIR}/{save_dir}')
