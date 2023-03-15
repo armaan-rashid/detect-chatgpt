@@ -42,31 +42,36 @@ def load_mask_model(mask_model_name):
 
     return mask_model, mask_tokenizer
 
-def load_huggingface_model_and_tokenizer(model: str, dataset: str):
+def load_huggingface_model_and_tokenizer(models: str, dataset: str):
     """
     TODO: make this work for multiple models!
     DESC: Load and return a huggingface model with model name.
     """
-    print(f'Loading HF model {model}...')
-    base_model_kwargs = {}
-    if 'gpt-j' in model or 'neox' in model:
-        base_model_kwargs.update(dict(torch_dtype=torch.float16))
-    if 'gpt-j' in model:
-        base_model_kwargs.update(dict(revision='float16'))
-    base_model = transformers.AutoModelForCausalLM.from_pretrained(model, **base_model_kwargs)
-    optional_tok_kwargs = {}
-    if "facebook/opt-" in model:
-        print("Using non-fast tokenizer for OPT")
-        optional_tok_kwargs['fast'] = False
-    if dataset in ['pubmed']:
-        optional_tok_kwargs['padding_side'] = 'left'
-    base_tokenizer = transformers.AutoTokenizer.from_pretrained(model, **optional_tok_kwargs)
-    base_tokenizer.pad_token_id = base_tokenizer.eos_token_id
+    base_models = []
+    base_tokenizers = []
+    for model in models: 
+        print(f'Loading HF model {model}...')
+        base_model_kwargs = {}
+        if 'gpt-j' in model or 'neox' in model:
+            base_model_kwargs.update(dict(torch_dtype=torch.float16))
+        if 'gpt-j' in model:
+            base_model_kwargs.update(dict(revision='float16'))
+        base_model = transformers.AutoModelForCausalLM.from_pretrained(model, **base_model_kwargs)
+        optional_tok_kwargs = {}
+        if "facebook/opt-" in model:
+            print("Using non-fast tokenizer for OPT")
+            optional_tok_kwargs['fast'] = False
+        if dataset in ['pubmed']:
+            optional_tok_kwargs['padding_side'] = 'left'
+        base_tokenizer = transformers.AutoTokenizer.from_pretrained(model, **optional_tok_kwargs)
+        base_tokenizer.pad_token_id = base_tokenizer.eos_token_id
+        base_models.append(base_model)
+        base_tokenizers.append(base_tokenizers)
 
-    return base_model, base_tokenizer
+    return base_models, base_tokenizers
 
 
-def query_lls(results, openai_models=None, openai_opts=None, base_tokenizer=None, base_model=None):
+def query_lls(results, openai_models=None, openai_opts=None, base_tokenizers=None, base_models=None):
     """
     TODO: make this function work for multiple query models.
     DESC: Given passages and their perturbed versions, query log likelihoods for all of them
@@ -74,7 +79,7 @@ def query_lls(results, openai_models=None, openai_opts=None, base_tokenizer=None
     PARAMS:
     results: a List[Dict] where each dict has original passage, sample passage, and perturbed versions of each
     openai_models: list of openai models 
-    base_tokenizer, base_model: if an HF model used for querying, the actual model and tokenizer
+    base_tokenizers, base_models: if an HF model used for querying, a list of the actual model and tokenizer
     RETURNS:
     results, but with additional keys in each dict as follows:
     {
@@ -85,13 +90,37 @@ def query_lls(results, openai_models=None, openai_opts=None, base_tokenizer=None
     }
     """
     all_results = []
+
+    # run for all openai models
     for openai_model in openai_models: 
         results_copy = copy.deepcopy(results)
         for res in tqdm.tqdm(results_copy, desc="Computing log likelihoods"):
-            p_sampled_ll = qp.get_lls(res["perturbed_sampled"], openai_model, base_tokenizer, base_model, **openai_opts)
-            p_original_ll = qp.get_lls(res["perturbed_original"], openai_model, base_tokenizer, base_model, **openai_opts)
-            res["original_ll"] = qp.get_ll(res["original"], openai_model, base_tokenizer, base_model, **openai_opts)
-            res["sampled_ll"] = qp.get_ll(res["sampled"], openai_model, base_tokenizer, base_model, **openai_opts)
+            p_sampled_ll = qp.get_lls(res["perturbed_sampled"], openai_model, None, None, **openai_opts)
+            p_original_ll = qp.get_lls(res["perturbed_original"], openai_model, None, None, **openai_opts)
+            res["original_ll"] = qp.get_ll(res["original"], openai_model, None, None, **openai_opts)
+            res["sampled_ll"] = qp.get_ll(res["sampled"], openai_model, None, None, **openai_opts)
+            res["all_perturbed_sampled_ll"] = p_sampled_ll
+            res["all_perturbed_original_ll"] = p_original_ll
+            res["perturbed_sampled_ll"] = np.mean(p_sampled_ll)
+            res["perturbed_original_ll"] = np.mean(p_original_ll)
+            res["perturbed_sampled_ll_std"] = np.std(p_sampled_ll) if len(p_sampled_ll) > 1 else 1
+            res["perturbed_original_ll_std"] = np.std(p_original_ll) if len(p_original_ll) > 1 else 1
+
+        tokens_used = qp.count_tokens()
+        print(f'This query used {tokens_used} tokens.')
+        all_results.append(results_copy)
+
+    # run for all hugging facemodels
+    for i in range(0, len(base_tokenizers)): 
+        base_tokenizer = base_tokenizers[i]
+        base_model = base_models[i]
+
+        results_copy = copy.deepcopy(results)
+        for res in tqdm.tqdm(results_copy, desc="Computing log likelihoods"):
+            p_sampled_ll = qp.get_lls(res["perturbed_sampled"], None, base_tokenizer, base_model, None)
+            p_original_ll = qp.get_lls(res["perturbed_original"], None, base_tokenizer, base_model, None)
+            res["original_ll"] = qp.get_ll(res["original"], None, base_tokenizer, base_model, None)
+            res["sampled_ll"] = qp.get_ll(res["sampled"], None, base_tokenizer, base_model, None)
             res["all_perturbed_sampled_ll"] = p_sampled_ll
             res["all_perturbed_original_ll"] = p_original_ll
             res["perturbed_sampled_ll"] = np.mean(p_sampled_ll)
@@ -188,8 +217,8 @@ if __name__ == '__main__':
     parser = ArgumentParser(prog='run detectChatGPT')
     parser.add_argument('dataset', help='name of dataset')
     parser.add_argument('infile', help='csv file: where to read data from')
-    parser.add_argument('--query_models', help='models to be used for probability querying', nargs="+")
-    parser.add_argument('-o', '--openai', action='store_true', help='specify if query model is an OpenAI model')
+    parser.add_argument('--openai_query_models', help='openai models to be used for probability querying', nargs="*")
+    parser.add_argument('--huggingface_query_models', help='huggingface models to be used for probability querying', nargs="*")
     parser.add_argument('-d', '--directory', help='directory to save plots, should contain info abt query models and dataset')
     parser.add_argument('-k', '--k_examples', help='load k examples from file', type=int)
     parser.add_argument('--perturbed', action='store_true', help='specify to indicate perturbations already in infile')
@@ -239,22 +268,25 @@ if __name__ == '__main__':
     else:
         perturbed = load_perturbed(args.infile, args.n_perturbations)
 
-    if args.openai:
-        all_results = query_lls(perturbed, openai_models=args.query_models, openai_opts=open_ai_hyperparams)
-    else: 
-        hf_model, hf_tokenizer = load_huggingface_model_and_tokenizer(args.query_models, args.dataset)
-        all_results = query_lls(perturbed, base_model=hf_model, base_tokenizer=hf_tokenizer)
+    openai_models, openai_opts = None, None
+    if args.openai_query_models:
+        openai_models = args.openai_query_models
+        openai_opts = open_ai_hyperparams
+    hf_models, hf_tokenizers = None, None
+    if args.huggingface_query_models:
+        hf_models, hf_tokenizers = load_huggingface_model_and_tokenizer(args.huggingface_query_models, args.dataset)
+    all_results = query_lls(perturbed, openai_models=args.openai_query_models, openai_opts=open_ai_hyperparams, base_models=hf_models, base_tokenizers=hf_tokenizers)
     experiments = [run_perturbation_experiment(all_results, criterion, hyperparameters, args.dataset) for criterion in ['z', 'd']]
 
     # graph results, making sure the directory exists
     DIR = args.directory
     # within DIR save inside a directory with hyperparameter information
     save_dir = f'n={hyperparameters["n_perturbations"]}_s={hyperparameters["span_length"]}_p={hyperparameters["perturb_pct"]}'
-    if args.openai:
+    if args.openai_query_models:
         save_dir += f'_openai_temp={open_ai_hyperparams["temperature"]}_choices={open_ai_hyperparams["n"]}'
     if not os.path.exists(f'{DIR}/{save_dir}'):
         os.makedirs(f'{DIR}/{save_dir}')
     plt.figure()
-    evaluation.save_roc_curves(experiments, args.query_models, f'{DIR}/{save_dir}')
+    evaluation.save_roc_curves(experiments, args.openai_query_models + args.huggingface_query_models, f'{DIR}/{save_dir}')
     evaluation.save_ll_histograms(experiments, f'{DIR}/{save_dir}')
     evaluation.save_llr_histograms(experiments, f'{DIR}/{save_dir}')
