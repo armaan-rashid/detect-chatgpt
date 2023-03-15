@@ -44,7 +44,6 @@ def load_mask_model(mask_model_name):
 
 def load_huggingface_model_and_tokenizer(models: str, dataset: str):
     """
-    TODO: make this work for multiple models!
     DESC: Load and return a huggingface model with model name.
     """
     base_models = []
@@ -64,7 +63,10 @@ def load_huggingface_model_and_tokenizer(models: str, dataset: str):
         if dataset in ['pubmed']:
             optional_tok_kwargs['padding_side'] = 'left'
         base_tokenizer = transformers.AutoTokenizer.from_pretrained(model, **optional_tok_kwargs)
-        base_tokenizer.pad_token_id = base_tokenizer.eos_token_id
+        try:
+            base_tokenizer.pad_token_id = base_tokenizer.eos_token_id
+        except:
+            base_tokenizer.pad_token_id = [base_tokenizer.eos_token_id]
         base_models.append(base_model)
         base_tokenizers.append(base_tokenizers)
 
