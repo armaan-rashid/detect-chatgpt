@@ -12,11 +12,34 @@ import numpy as np
 import torch
 from multiprocessing.pool import ThreadPool
 import transformers
-
+import pandas as pd
 
 API_TOKEN_COUNTER = 0
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 GPT2_TOKENIZER = transformers.GPT2Tokenizer.from_pretrained('gpt2')
+
+def write_lls(results, model, datafile): 
+    """
+    DESC: write log-likelihoods to a dataFrame and an outfile. To avoid money-wastage. OpenAI is expensive!
+    PARAMS:
+    results: List[dict]. Each dict has many keys; the relevant keys are: 
+    {
+        'original_ll', 'sampled_ll': lls of original, sampled passage under query models
+        'all_perturbed_sampled_ll','all_perturbed_original_ll': all lls of all perturbed passages
+    }
+    model: name of openai model that generated these results
+    """
+    original_lls = [[res['original_ll']] + res['all_perturbed_original_ll'] for res in results]
+    sampled_lls = [[res['sampled_ll']] + res['all_perturbed_sampled_ll'] for res in results]
+    orig_dict = { f'o{i+1}' : ll for i, ll in enumerate(original_lls)}
+    sampled_dict = { f's{i+1}' : ll for i, ll in enumerate(sampled_lls)}
+    df = pd.DataFrame(data={**orig_dict, **sampled_dict})
+    df.to_csv(f'openai_lls/{model}_{datafile}.csv', index=False)
+    return df
+
+def read_lls(filename):
+    """
+    DESC: read in lls from a file formatted by write_lls"""
 
 def get_ll(text, openai_model=None, base_tokenizer=None, base_model=None, **open_ai_opts):
     """

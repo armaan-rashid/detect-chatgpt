@@ -82,6 +82,9 @@ def load_huggingface_model_and_tokenizer(models: str, dataset: str):
     return base_models, base_tokenizers
 
 
+
+
+
 def query_lls(results, openai_models=None, openai_opts=None, base_tokenizers=None, base_models=None):
     """
     DESC: Given passages and their perturbed versions, query log likelihoods for all of them
@@ -105,17 +108,14 @@ def query_lls(results, openai_models=None, openai_opts=None, base_tokenizers=Non
     for openai_model in openai_models: 
         results_copy = copy.deepcopy(results)
         for res in tqdm.tqdm(results_copy, desc="Computing log likelihoods"):
-            p_sampled_ll = qp.get_lls(res["perturbed_sampled"], openai_model, None, None, **openai_opts)
-            p_original_ll = qp.get_lls(res["perturbed_original"], openai_model, None, None, **openai_opts)
             res["original_ll"] = qp.get_ll(res["original"], openai_model, None, None, **openai_opts)
             res["sampled_ll"] = qp.get_ll(res["sampled"], openai_model, None, None, **openai_opts)
-            res["all_perturbed_sampled_ll"] = p_sampled_ll
-            res["all_perturbed_original_ll"] = p_original_ll
+            res["all_perturbed_original_ll"] = qp.get_lls(res["perturbed_original"], openai_model, None, None, **openai_opts)
+            res["all_perturbed_sampled_ll"] = qp.get_lls(res["perturbed_sampled"], openai_model, None, None, **openai_opts)
             res["perturbed_sampled_ll"] = np.mean(p_sampled_ll)
             res["perturbed_original_ll"] = np.mean(p_original_ll)
             res["perturbed_sampled_ll_std"] = np.std(p_sampled_ll) if len(p_sampled_ll) > 1 else 1
             res["perturbed_original_ll_std"] = np.std(p_original_ll) if len(p_original_ll) > 1 else 1
-
         tokens_used = qp.count_tokens()
         print(f'This query used {tokens_used} tokens.')
         all_results.append(results_copy)
@@ -223,12 +223,15 @@ def run_perturbation_experiment(all_results, criterion, hyperparameters, dataset
 if __name__ == '__main__':
     parser = ArgumentParser(prog='run detectChatGPT')
     parser.add_argument('dataset', help='name of dataset')
-    parser.add_argument('infile', help='csv file: where to read data from')
+    parser.add_argument('--candidate_file', help='csv files: where to read candidate_files from')
+    parser.add_argument('--perturbation_file', help='csv files to read perturbations from')
+    parser.add_argument('--ll_files', help='if lls have already ')
     parser.add_argument('--openai_query_models', help='openai models to be used for probability querying', nargs="*", default=[])
     parser.add_argument('--huggingface_query_models', help='huggingface models to be used for probability querying', nargs="*", default=[])
     parser.add_argument('-d', '--directory', help='directory to save plots, should contain info abt query models and dataset')
     parser.add_argument('-k', '--k_examples', help='load k examples from file', type=int)
     parser.add_argument('--perturbed', action='store_true', help='specify to indicate perturbations already in infile')
+    parser.add_argument('--queried', action='store_true', help='file has lls in it, already queried! all that needs to be done is evaluate!')
 
     perturb_options = parser.add_argument_group()
     perturb_options.add_argument('-n', '--n_perturbations', help='number of perturbations to perform in experiments', type=int, default=5)
@@ -264,6 +267,9 @@ if __name__ == '__main__':
 
     # core model pipeline: perturb, query probabilities, make predictions
 
+    if args.queried:
+        assert args.perturbed, 'if you have queried lls already, perturbations should be done too!'
+
     if not args.perturbed:
         data = load_data(args.infile, args.k_examples)
         mask_tokenizer, mask_model = load_mask_model(MASK_FILLING_MODEL)
@@ -275,14 +281,17 @@ if __name__ == '__main__':
     else:
         perturbed = load_perturbed(args.infile, args.n_perturbations, args.k_examples)
 
-    openai_models, openai_opts = [], []
-    if args.openai_query_models:
-        openai_models = args.openai_query_models
-        openai_opts = open_ai_hyperparams
-    hf_models, hf_tokenizers = [], []
-    if args.huggingface_query_models:
-        hf_models, hf_tokenizers = load_huggingface_model_and_tokenizer(args.huggingface_query_models, args.dataset)
-    all_results = query_lls(perturbed, openai_models=args.openai_query_models, openai_opts=open_ai_hyperparams, base_models=hf_models, base_tokenizers=hf_tokenizers)
+    if not args.queried:
+        openai_models, openai_opts = [], []
+        if args.openai_query_models:
+            openai_models = args.openai_query_models
+            openai_opts = open_ai_hyperparams
+        hf_models, hf_tokenizers = [], []
+        if args.huggingface_query_models:
+            hf_models, hf_tokenizers = load_huggingface_model_and_tokenizer(args.huggingface_query_models, args.dataset)
+        all_results = query_lls(perturbed, openai_models, openai_opts=open_ai_hyperparams, base_models=hf_models, base_tokenizers=hf_tokenizers)
+        for results, model in zip(all_results, openai_models):
+            qp.write_lls(results, model, args.infile)
     experiments = [run_perturbation_experiment(all_results, criterion, hyperparameters, args.dataset) for criterion in ['z', 'd']]
 
     # graph results, making sure the directory exists
