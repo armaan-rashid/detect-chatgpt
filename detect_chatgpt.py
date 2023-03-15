@@ -267,11 +267,11 @@ if __name__ == '__main__':
     else:
         perturbed = load_perturbed(args.infile, args.n_perturbations, args.k_examples)
 
-    openai_models, openai_opts = None, None
+    openai_models, openai_opts = [], []
     if args.openai_query_models:
         openai_models = args.openai_query_models
         openai_opts = open_ai_hyperparams
-    hf_models, hf_tokenizers = None, None
+    hf_models, hf_tokenizers = [], []
     if args.huggingface_query_models:
         hf_models, hf_tokenizers = load_huggingface_model_and_tokenizer(args.huggingface_query_models, args.dataset)
     all_results = query_lls(perturbed, openai_models=args.openai_query_models, openai_opts=open_ai_hyperparams, base_models=hf_models, base_tokenizers=hf_tokenizers)
