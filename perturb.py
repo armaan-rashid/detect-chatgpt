@@ -47,7 +47,8 @@ def load_perturbed(filename, n=0, k=0):
     perturbations following.
     PARAMS:
     filename: (.csv) where dataFrame is stored
-    n: number of perturbations to load
+    n: number of perturbations to load per candidate
+    k: number of candidates to load
     """
     perturbed = pd.read_csv(filename)
     c = len(perturbed.columns) // 2  # number of candidate passages
