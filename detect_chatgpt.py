@@ -134,9 +134,6 @@ def query_lls(results, openai_models=None, openai_opts=None, base_tokenizers=Non
             res["perturbed_original_ll"] = np.mean(p_original_ll)
             res["perturbed_sampled_ll_std"] = np.std(p_sampled_ll) if len(p_sampled_ll) > 1 else 1
             res["perturbed_original_ll_std"] = np.std(p_original_ll) if len(p_original_ll) > 1 else 1
-
-        tokens_used = qp.count_tokens()
-        print(f'This query used {tokens_used} tokens.')
         all_results.append(results_copy)
     
     return all_results
@@ -278,17 +275,20 @@ if __name__ == '__main__':
     elif args.perturbation_file:
         perturbed = load_perturbed(args.perturbation_file, args.n_perturbations, args.k_examples)
 
-
-    openai_models, openai_opts = [], []
+    infile = args.candidate_file if args.candidate_file else args.perturbation_file
+    openai_models = []
     if args.openai_query_models:
+        assert infile, 'you need to have given a file of passages to query probs.'
         openai_models = args.openai_query_models
-        openai_opts = open_ai_hyperparams
-    hf_models, hf_tokenizers = [], []
+    hf_model_names = []
     if args.huggingface_query_models:
-        hf_models, hf_tokenizers = load_hf_models_and_tokenizers(args.huggingface_query_models, args.dataset)
-    all_results = query_lls(perturbed, openai_models, openai_opts=open_ai_hyperparams, base_models=hf_models, base_tokenizers=hf_tokenizers)
-    for results, model in zip(all_results, openai_models):
-        qp.write_lls(results, model, args.infile)
+        assert infile, 'you need to have given a file of passages to query probs.'
+        hf_model_names = args.huggingface_query_models
+        hf_models, hf_tokenizers = load_hf_models_and_tokenizers(hf_model_names, args.dataset)
+    if len(openai_models) > 0 or len(hf_models) > 0:
+        all_results = query_lls(perturbed, openai_models, openai_opts=open_ai_hyperparams, base_models=hf_models, base_tokenizers=hf_tokenizers)
+        for results, model in zip(all_results, openai_models + hf_model_names):
+            qp.write_lls(results, model, infile)
     if args.ll_files:   # add probability results that are already done 
         all_results.extend([qp.read_lls(ll_file, args.n_perturbations, args.k_examples) for ll_file in args.ll_files])
     experiments = [run_perturbation_experiment(all_results, criterion, hyperparameters, args.dataset) for criterion in ['z', 'd']]
@@ -297,8 +297,6 @@ if __name__ == '__main__':
     DIR = args.directory
     # within DIR save inside a directory with hyperparameter information
     save_dir = f'n={hyperparameters["n_perturbations"]}_s={hyperparameters["span_length"]}_p={hyperparameters["perturb_pct"]}'
-    if args.openai_query_models:
-        save_dir += f'_openai_temp={open_ai_hyperparams["temperature"]}_choices={open_ai_hyperparams["n"]}'
     if not os.path.exists(f'{DIR}/{save_dir}'):
         os.makedirs(f'{DIR}/{save_dir}')
     plt.figure()
