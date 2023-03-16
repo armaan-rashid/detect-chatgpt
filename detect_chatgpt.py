@@ -124,10 +124,10 @@ def query_lls(results, openai_models=None, openai_opts=None, base_tokenizers=Non
     for base_tokenizer, base_model in zip(base_tokenizers, base_models):
         results_copy = copy.deepcopy(results)
         for res in tqdm.tqdm(results_copy, desc="Computing log likelihoods"):
-            p_sampled_ll = qp.get_lls(res["perturbed_sampled"], None, base_tokenizer, base_model, None)
-            p_original_ll = qp.get_lls(res["perturbed_original"], None, base_tokenizer, base_model, None)
-            res["original_ll"] = qp.get_ll(res["original"], None, base_tokenizer, base_model, None)
-            res["sampled_ll"] = qp.get_ll(res["sampled"], None, base_tokenizer, base_model, None)
+            p_sampled_ll = qp.get_lls(res["perturbed_sampled"], None, base_tokenizer, base_model)
+            p_original_ll = qp.get_lls(res["perturbed_original"], None, base_tokenizer, base_model)
+            res["original_ll"] = qp.get_ll(res["original"], None, base_tokenizer, base_model)
+            res["sampled_ll"] = qp.get_ll(res["sampled"], None, base_tokenizer, base_model)
             res["all_perturbed_sampled_ll"] = p_sampled_ll
             res["all_perturbed_original_ll"] = p_original_ll
             res["perturbed_sampled_ll"] = np.mean(p_sampled_ll)
