@@ -37,9 +37,22 @@ def write_lls(results, model, datafile):
     df.to_csv(f'openai_lls/{model}_{datafile}.csv', index=False)
     return df
 
-def read_lls(filename):
+def read_lls(filename, n=0, k=0):
     """
-    DESC: read in lls from a file formatted by write_lls"""
+    DESC: read in lls from a file formatted by write_lls
+    """
+    lls = pd.read_csv(filename)
+    c = len(lls.columns) // 2  # number of candidate passages
+    k = min(c, k) if k != 0 else c
+    n = min(n, len(lls) - 1) if n != 0 else len(lls) - 1
+    return [{'original_ll': lls[f'o{i}'][0],
+            'sampled_ll': lls[f's{i}'][0],
+            'all_perturbed_original_ll': lls[f'o{i}'][1:n+1],
+            'all_perturbed_sampled_ll': lls[f's{i}'][1:n+1],
+            "perturbed_sampled_ll": np.mean(lls[f's{i}'][1:n+1]),
+            "perturbed_original_ll": np.mean(lls[f'o{i}'][1:n+1]),
+            "perturbed_sampled_ll_std": np.std(lls[f's{i}'][1:n+1]) if n > 1 else 1,
+            "perturbed_original_ll_std": np.std(lls[f'o{i}'][1:n+1]) if n > 1 else 1} for i in range(1,k+1)]
 
 def get_ll(text, openai_model=None, base_tokenizer=None, base_model=None, **open_ai_opts):
     """

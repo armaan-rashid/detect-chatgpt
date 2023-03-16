@@ -42,7 +42,7 @@ def load_mask_model(mask_model_name):
 
     return mask_model, mask_tokenizer
 
-def load_huggingface_model_and_tokenizer(models: str, dataset: str):
+def load_hf_models_and_tokenizers(models: str, dataset: str):
     """
     DESC: Load and return huggingface models with model names.
     """
@@ -223,15 +223,14 @@ def run_perturbation_experiment(all_results, criterion, hyperparameters, dataset
 if __name__ == '__main__':
     parser = ArgumentParser(prog='run detectChatGPT')
     parser.add_argument('dataset', help='name of dataset')
-    parser.add_argument('--candidate_file', help='csv files: where to read candidate_files from')
+    parser.add_argument('--candidate_file', help='csv files: where to read candidate_files from for perturbation')
     parser.add_argument('--perturbation_file', help='csv files to read perturbations from')
-    parser.add_argument('--ll_files', help='if lls have already ')
+    parser.add_argument('--ll_files', help='if lls have already been queried, list the model name first then filename, as \
+                        many pairs as is necessary', nargs='*')
     parser.add_argument('--openai_query_models', help='openai models to be used for probability querying', nargs="*", default=[])
     parser.add_argument('--huggingface_query_models', help='huggingface models to be used for probability querying', nargs="*", default=[])
     parser.add_argument('-d', '--directory', help='directory to save plots, should contain info abt query models and dataset')
     parser.add_argument('-k', '--k_examples', help='load k examples from file', type=int)
-    parser.add_argument('--perturbed', action='store_true', help='specify to indicate perturbations already in infile')
-    parser.add_argument('--queried', action='store_true', help='file has lls in it, already queried! all that needs to be done is evaluate!')
 
     perturb_options = parser.add_argument_group()
     perturb_options.add_argument('-n', '--n_perturbations', help='number of perturbations to perform in experiments', type=int, default=5)
@@ -267,31 +266,31 @@ if __name__ == '__main__':
 
     # core model pipeline: perturb, query probabilities, make predictions
 
-    if args.queried:
-        assert args.perturbed, 'if you have queried lls already, perturbations should be done too!'
 
-    if not args.perturbed:
-        data = load_data(args.infile, args.k_examples)
+    if args.candidate_file:   # if only candidate passages passed in, generate perturbations!  
+        data = load_data(args.candidate_file, args.k_examples)
         mask_tokenizer, mask_model = load_mask_model(MASK_FILLING_MODEL)
         perturbed = perturb_texts(data, mask_tokenizer, mask_model, **hyperparameters)
 
         if args.writefile:  # write the perturbations if file specified
             write_perturbed(perturbed, args.writefile)
 
-    else:
+    elif args.perturbation_file:
         perturbed = load_perturbed(args.infile, args.n_perturbations, args.k_examples)
 
-    if not args.queried:
-        openai_models, openai_opts = [], []
-        if args.openai_query_models:
-            openai_models = args.openai_query_models
-            openai_opts = open_ai_hyperparams
-        hf_models, hf_tokenizers = [], []
-        if args.huggingface_query_models:
-            hf_models, hf_tokenizers = load_huggingface_model_and_tokenizer(args.huggingface_query_models, args.dataset)
-        all_results = query_lls(perturbed, openai_models, openai_opts=open_ai_hyperparams, base_models=hf_models, base_tokenizers=hf_tokenizers)
-        for results, model in zip(all_results, openai_models):
-            qp.write_lls(results, model, args.infile)
+
+    openai_models, openai_opts = [], []
+    if args.openai_query_models:
+        openai_models = args.openai_query_models
+        openai_opts = open_ai_hyperparams
+    hf_models, hf_tokenizers = [], []
+    if args.huggingface_query_models:
+        hf_models, hf_tokenizers = load_hf_models_and_tokenizers(args.huggingface_query_models, args.dataset)
+    all_results = query_lls(perturbed, openai_models, openai_opts=open_ai_hyperparams, base_models=hf_models, base_tokenizers=hf_tokenizers)
+    for results, model in zip(all_results, openai_models):
+        qp.write_lls(results, model, args.infile)
+    if args.ll_files:   # add probability results that are already done 
+        all_results.extend([qp.read_lls(ll_file, args.n_perturbations, args.k_examples) for ll_file in args.ll_files])
     experiments = [run_perturbation_experiment(all_results, criterion, hyperparameters, args.dataset) for criterion in ['z', 'd']]
 
     # graph results, making sure the directory exists
