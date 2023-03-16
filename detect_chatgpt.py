@@ -276,7 +276,7 @@ if __name__ == '__main__':
             write_perturbed(perturbed, args.writefile)
 
     elif args.perturbation_file:
-        perturbed = load_perturbed(args.infile, args.n_perturbations, args.k_examples)
+        perturbed = load_perturbed(args.perturbation_file, args.n_perturbations, args.k_examples)
 
 
     openai_models, openai_opts = [], []
