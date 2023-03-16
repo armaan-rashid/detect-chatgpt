@@ -276,10 +276,7 @@ if __name__ == '__main__':
         perturbed = load_perturbed(args.perturbation_file, args.n_perturbations, args.k_examples)
 
     infile = args.candidate_file if args.candidate_file else args.perturbation_file
-    last_slash = infile.rfind('/')
-    if infile:
-        if last_slash != -1:
-            infile = infile[last_slash+1:]
+    
     openai_models = []
     if args.openai_query_models:
         assert infile, 'you need to have given a file of passages to query probs.'

@@ -29,6 +29,12 @@ def write_lls(results, model, datafile):
     }
     model: name of openai model that generated these results
     """
+    last_slash = model.rfind('/')
+    if last_slash != -1:
+        model = model[last_slash+1:]
+    last_slash = datafile.rfind('/')
+    if last_slash != -1:
+        datafile = datafile[last_slash+1:]
     original_lls = [[res['original_ll']] + res['all_perturbed_original_ll'] for res in results]
     sampled_lls = [[res['sampled_ll']] + res['all_perturbed_sampled_ll'] for res in results]
     orig_dict = { f'o{i+1}' : ll for i, ll in enumerate(original_lls)}
