@@ -350,7 +350,7 @@ if __name__=='__main__':
     original = None
     if args.original_perturbations:
         original = load_perturbed(args.original_perturbations, orig_only=True)
-        original = original[:min(len(data), len(original))]   # make sure lengths match up
+        original = original[:min(len(data['original']), len(original))]   # make sure lengths match up
 
     perturbed = perturb_texts(data, mask_model, mask_tokenizer, args.chunk_size,
                               args.perturb_pct, args.span_length, args.n_perturbations, original)
