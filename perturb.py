@@ -41,7 +41,7 @@ def load_data(filename, tokenizer: transformers.T5Tokenizer, k=0):
     def truncate_tokens(string):    # truncate so there aren't indexing errors during tokenization later
         tokenized = tokenizer.encode(string)
         if len(tokenized) > tokenizer.model_max_length:
-            print(f'Truncating an example because it uses too many {len(tokenized)} tokens')
+            print(f'Truncating an example because it uses too many ({len(tokenized)}) tokens')
             return tokenizer.decode(tokenized[:tokenizer.model_max_length])
         return string
     
@@ -307,7 +307,7 @@ def perturb_texts(data, mask_model, mask_tokenizer, chunk_size=50, perturb_pct=0
         for dictionary, sample, idx in zip(orig_perturbations, sampled_text, range(len(sampled_text))):
             dictionary['sampled'] = sample
             dictionary['perturbed_sampled'] = p_sampled_text[idx * n_perturbations: (idx + 1) * n_perturbations]
-        print(f'Created {n_perturbations * len(orig_perturbations)} texts.')
+        print(f'Created {n_perturbations * len(sampled_text)} texts.')
         return orig_perturbations
 
 
@@ -349,7 +349,7 @@ if __name__=='__main__':
 
     original = None
     if args.original_perturbations:
-        original = load_perturbed(args.original_perturbations, orig_only=True)
+        original = load_perturbed(args.original_perturbations, args.n_perturbations, args.k_examples, orig_only=True)
         original = original[:min(len(data['original']), len(original))]   # make sure lengths match up
 
     perturbed = perturb_texts(data, mask_model, mask_tokenizer, args.chunk_size,
