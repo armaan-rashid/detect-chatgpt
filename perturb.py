@@ -258,7 +258,7 @@ def generate_perturbations(texts, span_length, pct, mask_model, mask_tokenizer, 
     """
     outputs = []
     for i in tqdm.tqdm(range(0, len(texts), chunk_size), desc="Applying perturbations"):
-        outputs.extend(generate_perturbations_(texts[i:i + chunk_size], span_length, pct, mask_model, mask_tokenizer, ceil_pct=ceil_pct))
+        outputs.extend(generate_perturbations_(texts[i:min(i + chunk_size, len(texts))], span_length, pct, mask_model, mask_tokenizer, ceil_pct=ceil_pct))
     return outputs
 
 
