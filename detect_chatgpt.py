@@ -112,10 +112,10 @@ def query_lls(results, openai_models=None, openai_opts=None, base_tokenizers=Non
             res["sampled_ll"] = qp.get_ll(res["sampled"], openai_model, None, None, **openai_opts)
             res["all_perturbed_original_ll"] = qp.get_lls(res["perturbed_original"], openai_model, None, None, **openai_opts)
             res["all_perturbed_sampled_ll"] = qp.get_lls(res["perturbed_sampled"], openai_model, None, None, **openai_opts)
-            res["perturbed_sampled_ll"] = np.mean(p_sampled_ll)
-            res["perturbed_original_ll"] = np.mean(p_original_ll)
-            res["perturbed_sampled_ll_std"] = np.std(p_sampled_ll) if len(p_sampled_ll) > 1 else 1
-            res["perturbed_original_ll_std"] = np.std(p_original_ll) if len(p_original_ll) > 1 else 1
+            res["perturbed_sampled_ll"] = np.mean(res['all_perturbed_sampled_ll'])
+            res["perturbed_original_ll"] = np.mean(res['all_perturbed_original_ll'])
+            res["perturbed_sampled_ll_std"] = np.std(res['all_perturbed_sampled_ll']) if len(res['all_perturbed_sampled_ll']) > 1 else 1
+            res["perturbed_original_ll_std"] = np.std(res['all_perturbed_original_ll']) if len(res['all_perturbed_original_ll']) > 1 else 1
         tokens_used = qp.count_tokens()
         print(f'This query used {tokens_used} tokens.')
         all_results.append(results_copy)
