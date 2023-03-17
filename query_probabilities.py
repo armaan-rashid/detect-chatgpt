@@ -10,6 +10,7 @@ import torch
 from multiprocessing.pool import ThreadPool
 import transformers
 import pandas as pd
+import time
 
 API_TOKEN_COUNTER = 0
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -72,10 +73,17 @@ def get_ll(text, openai_model=None, base_tokenizer=None, base_model=None, **open
     if openai_model:        
         global API_TOKEN_COUNTER
         openai.api_key = os.getenv('OPENAI_API_KEY')
-        r = openai.Completion.create(model=openai_model, prompt=f"<|endoftext|>{text}", **open_ai_opts)
-        API_TOKEN_COUNTER += r['usage']['total_tokens']
-        result = r['choices'][0]
-        tokens, logprobs = result["logprobs"]["tokens"][1:], result["logprobs"]["token_logprobs"][1:]
+        while True:
+            try:
+                r = openai.Completion.create(model=openai_model, prompt=f"<|endoftext|>{text}", **open_ai_opts)
+                API_TOKEN_COUNTER += r['usage']['total_tokens']
+                result = r['choices'][0]
+                tokens, logprobs = result["logprobs"]["tokens"][1:], result["logprobs"]["token_logprobs"][1:]
+                break
+            except:
+                print('Hit the rate limit. Just wait!')
+                time.sleep(0.002)
+
 
         assert len(tokens) == len(logprobs), f"Expected {len(tokens)} logprobs, got {len(logprobs)}"
 
