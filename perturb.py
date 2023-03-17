@@ -91,6 +91,7 @@ def write_perturbed(perturbed, dataset, temp, span, pct):
     sampled_dict = { f's{i+1}' : col for i, col in enumerate(sampled_cols)}
     df = pd.DataFrame(data={**orig_dict, **sampled_dict})
     # write to Perturbations folder
+    pct = str(pct).strip('0.')
     outfile = f'Perturbations/{dataset}_t{temp}_k{len(df.columns)//2}_n{len(df)}_s{span}_p{pct}.csv'
     while True:
         try:
@@ -353,7 +354,7 @@ if __name__=='__main__':
 
     perturbed = perturb_texts(data, mask_model, mask_tokenizer, args.chunk_size,
                               args.perturb_pct, args.span_length, args.n_perturbations, original)
-    # the following assumes that infile is named according to the convention {dataset}_{temperature}.csv
-    dataset = args.infile[:args.infile.find('_')]
-    temp =  args.infile[args.infile.find('_'):args.infile.find('.')]
+    # the following assumes that infile is named according to the convention {dataset}/{dataset}_{temperature}.csv
+    dataset = args.infile[:args.infile.find('/')]
+    temp = args.infile[args.infile.find('_')+1:args.infile.find('.')]
     write_perturbed(perturbed, dataset, temp, args.span_length, args.perturb_pct)
