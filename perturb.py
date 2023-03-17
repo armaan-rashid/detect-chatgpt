@@ -13,6 +13,7 @@ import re
 import torch
 from torch import cuda
 import functools
+import itertools
 from argparse import ArgumentParser
 import pandas as pd
 
@@ -23,8 +24,9 @@ MASK_PATTERN = re.compile(r"<extra_id_\d+>")
 
 def load_data(filename, k=None):
     """
-    From data_processing, copied here to avoid having to import
-    and create package issues on GPUs.
+    Similar to the one from data_processing,
+    but we truncate in this version so that perturbation
+    happens smoothly.
     """
     df = pd.read_csv(filename)
     assert 'original' in df.columns and 'sampled' in df.columns, 'files need to have original and sampled cols'
@@ -33,8 +35,12 @@ def load_data(filename, k=None):
             'sampled': df['sampled'].values.tolist()}
     if k is None:
         k = len(conv['original'])
-    conv['original'] = conv['original'][:min(k, len(conv['original']))]
-    conv['sampled'] = conv['sampled'][:min(k, len(conv['sampled']))]
+
+    def truncate(strings, num_words):    # truncate so there aren't indexing errors during tokenization later
+        return [' '.join(string.split()[:num_words]) for string in strings]
+    
+    conv['original'] = truncate(conv['original'][:min(k, len(conv['original']))], 250)
+    conv['sampled'] = truncate(conv['sampled'][:min(k, len(conv['sampled']))], 250)
     return conv
 
 
