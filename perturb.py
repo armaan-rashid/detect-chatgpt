@@ -45,8 +45,8 @@ def load_data(filename, tokenizer: transformers.T5Tokenizer, k=0):
             return tokenizer.decode(tokenized[:tokenizer.model_max_length])
         return string
     
-    conv['original'] = [truncate_tokens(example, 250) for example in conv['original']]
-    conv['sampled'] = [truncate_tokens(example, 250) for example in conv['sampled']]
+    conv['original'] = [truncate_tokens(example) for example in conv['original']]
+    conv['sampled'] = [truncate_tokens(example) for example in conv['sampled']]
     return conv
 
 
