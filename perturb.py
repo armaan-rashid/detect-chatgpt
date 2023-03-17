@@ -13,7 +13,6 @@ import re
 import torch
 from torch import cuda
 import functools
-import itertools
 from argparse import ArgumentParser
 import pandas as pd
 
@@ -22,7 +21,7 @@ DEVICE = 'cuda' if cuda.is_available() else 'cpu'
 MASK_PATTERN = re.compile(r"<extra_id_\d+>")
 
 
-def load_data(filename, tokenizer: transformers.T5Tokenizer, k=0):
+def load_data(filename, tokenizer, k=0):
     """
     Similar to the one from data_processing,
     but we truncate in this version so that perturbation
