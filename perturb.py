@@ -320,7 +320,6 @@ if __name__=='__main__':
     perturb_options.add_argument('-s', '--span_length', help='span of tokens to mask in candidate passages', type=int, default=2)
     perturb_options.add_argument('-p', '--perturb_pct', help='percentage (as decimal) of each passage to perturb', type=float, default=0.15)
     perturb_options.add_argument('-r', '--n_perturbation_rounds', help='number of times to attempt perturbations', type=int, default=1)
-    perturb_options.add_argument('-w', '--writefile', help='file to write perturbed examples to')
     perturb_options.add_argument('-c', '--chunk_size', help='for GPU optimization!', type=int, default=5)
     perturb_options.add_argument('-o', '--original_perturbations', help='file which contains original perturbations, if only sample perturbations necessary')
 
