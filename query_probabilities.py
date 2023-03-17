@@ -1,9 +1,6 @@
 """
 These are the essential detection functions for detectChatGPT, 
 adapted from Eric Mitchell et al.'s original implementation. 
-
-TODO: Turn this file into implementation of querying multiple models, and
-training an NN to weight multiple models' query methods
 """
 
 import os

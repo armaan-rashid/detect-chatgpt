@@ -281,7 +281,7 @@ if __name__ == '__main__':
     if args.openai_query_models:
         assert infile, 'you need to have given a file of passages to query probs.'
         openai_models = args.openai_query_models
-    hf_model_names = []
+    hf_model_names, hf_models, hf_tokenizers = [], [], []
     if args.huggingface_query_models:
         assert infile, 'you need to have given a file of passages to query probs.'
         hf_model_names = args.huggingface_query_models
