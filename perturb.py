@@ -22,7 +22,7 @@ DEVICE = 'cuda' if cuda.is_available() else 'cpu'
 MASK_PATTERN = re.compile(r"<extra_id_\d+>")
 
 
-def load_data(filename, k=0):
+def load_data(filename, tokenizer: transformers.T5Tokenizer, k=0):
     """
     Similar to the one from data_processing,
     but we truncate in this version so that perturbation
@@ -34,12 +34,19 @@ def load_data(filename, k=0):
     conv = {'original': df['original'].values.tolist(),
             'sampled': df['sampled'].values.tolist()}
     k = min(len(conv['original']), k) if k != 0 else len(conv['original'])
-
-    def truncate(strings, num_words):    # truncate so there aren't indexing errors during tokenization later
-        return [' '.join(string.split()[:num_words]) for string in strings]
+    # we will truncate with the tokenizer so there aren't any greater-than-max-len sequences!
+    print(f'Verifying that all passages have length less than {tokenizer.model_max_length} tokens.')
+    try: tokenizer.to(DEVICE)
+    except: pass
+    def truncate_tokens(string):    # truncate so there aren't indexing errors during tokenization later
+        tokenized = tokenizer.encode(string)
+        if len(tokenized) > tokenizer.model_max_length:
+            print(f'Truncating an example because it uses too many {len(tokenized)} tokens')
+            return tokenizer.decode(tokenized[:tokenizer.model_max_length])
+        return string
     
-    conv['original'] = truncate(conv['original'][:k], 250)
-    conv['sampled'] = truncate(conv['sampled'][:k], 250)
+    conv['original'] = [truncate_tokens(example, 250) for example in conv['original']]
+    conv['sampled'] = [truncate_tokens(example, 250) for example in conv['sampled']]
     return conv
 
 
@@ -325,13 +332,6 @@ if __name__=='__main__':
 
     args = perturb_options.parse_args()
 
-    data = load_data(args.infile, args.k_examples)
-
-    original = None
-    if args.original_perturbations:
-        original = load_perturbed(args.original_perturbations, orig_only=True)
-        original = original[:min(len(data), len(original))]   # make sure lengths match up
-
     print('Loading T5-3B mask model and tokenizer...')
     mask_model = transformers.AutoModelForSeq2SeqLM.from_pretrained('t5-3b') # can be cached. 
     try:
@@ -342,6 +342,15 @@ if __name__=='__main__':
     print('MOVING MASK MODEL TO GPU...', end='', flush=True)
     mask_model.to(DEVICE)
     print('DONE')
+
+
+    data = load_data(args.infile, mask_tokenizer, args.k_examples)
+
+    original = None
+    if args.original_perturbations:
+        original = load_perturbed(args.original_perturbations, orig_only=True)
+        original = original[:min(len(data), len(original))]   # make sure lengths match up
+
     perturbed = perturb_texts(data, mask_model, mask_tokenizer, args.chunk_size,
                               args.perturb_pct, args.span_length, args.n_perturbations, original)
     # the following assumes that infile is named according to the convention {dataset}_{temperature}.csv
