@@ -82,7 +82,7 @@ def get_ll(text, openai_model=None, base_tokenizer=None, base_model=None, **open
                 break
             except:
                 print('Hit the rate limit. Just wait!')
-                time.sleep(0.002)
+                time.sleep(2)
 
 
         assert len(tokens) == len(logprobs), f"Expected {len(tokens)} logprobs, got {len(logprobs)}"
