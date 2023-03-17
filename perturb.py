@@ -22,7 +22,7 @@ DEVICE = 'cuda' if cuda.is_available() else 'cpu'
 MASK_PATTERN = re.compile(r"<extra_id_\d+>")
 
 
-def load_data(filename, k=None):
+def load_data(filename, k=0):
     """
     Similar to the one from data_processing,
     but we truncate in this version so that perturbation
@@ -33,14 +33,13 @@ def load_data(filename, k=None):
     print(f'Loading data from {filename}.')
     conv = {'original': df['original'].values.tolist(),
             'sampled': df['sampled'].values.tolist()}
-    if k is None:
-        k = len(conv['original'])
+    k = min(len(conv['original']), k) if k != 0 else len(conv['original'])
 
     def truncate(strings, num_words):    # truncate so there aren't indexing errors during tokenization later
         return [' '.join(string.split()[:num_words]) for string in strings]
     
-    conv['original'] = truncate(conv['original'][:min(k, len(conv['original']))], 250)
-    conv['sampled'] = truncate(conv['sampled'][:min(k, len(conv['sampled']))], 250)
+    conv['original'] = truncate(conv['original'][:k], 250)
+    conv['sampled'] = truncate(conv['sampled'][:k], 250)
     return conv
 
 
@@ -316,7 +315,7 @@ def perturb_texts(data, mask_model, mask_tokenizer, chunk_size=50, perturb_pct=0
 if __name__=='__main__':
     perturb_options = ArgumentParser()
     perturb_options.add_argument('infile', help='where to read candidate passages from')
-    perturb_options.add_argument('-k', '--k_examples', help='num examples to load from infile', type=int)
+    perturb_options.add_argument('-k', '--k_examples', help='num examples to load from infile', type=int, default=0)   # 0 is a sentinel meaning 'all'
     perturb_options.add_argument('-n', '--n_perturbations', help='number of perturbations to perform in experiments', type=int, default=100)
     perturb_options.add_argument('-s', '--span_length', help='span of tokens to mask in candidate passages', type=int, default=2)
     perturb_options.add_argument('-p', '--perturb_pct', help='percentage (as decimal) of each passage to perturb', type=float, default=0.15)
