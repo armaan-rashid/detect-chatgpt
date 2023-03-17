@@ -13,6 +13,7 @@ import re
 import torch
 from torch import cuda
 import functools
+import itertools
 from argparse import ArgumentParser
 import pandas as pd
 
@@ -21,20 +22,31 @@ DEVICE = 'cuda' if cuda.is_available() else 'cpu'
 MASK_PATTERN = re.compile(r"<extra_id_\d+>")
 
 
-def load_data(filename, k=None):
+def load_data(filename, tokenizer: transformers.T5Tokenizer, k=0):
     """
-    From data_processing, copied here to avoid having to import
-    and create package issues on GPUs.
+    Similar to the one from data_processing,
+    but we truncate in this version so that perturbation
+    happens smoothly.
     """
     df = pd.read_csv(filename)
     assert 'original' in df.columns and 'sampled' in df.columns, 'files need to have original and sampled cols'
     print(f'Loading data from {filename}.')
     conv = {'original': df['original'].values.tolist(),
             'sampled': df['sampled'].values.tolist()}
-    if k is None:
-        k = len(conv['original'])
-    conv['original'] = conv['original'][:min(k, len(conv['original']))]
-    conv['sampled'] = conv['sampled'][:min(k, len(conv['sampled']))]
+    k = min(len(conv['original']), k) if k != 0 else len(conv['original'])
+    # we will truncate with the tokenizer so there aren't any greater-than-max-len sequences!
+    print(f'Verifying that all passages have length less than {tokenizer.model_max_length} tokens.')
+    try: tokenizer.to(DEVICE)
+    except: pass
+    def truncate_tokens(string):    # truncate so there aren't indexing errors during tokenization later
+        tokenized = tokenizer.encode(string)
+        if len(tokenized) > tokenizer.model_max_length:
+            print(f'Truncating an example because it uses too many {len(tokenized)} tokens')
+            return tokenizer.decode(tokenized[:tokenizer.model_max_length])
+        return string
+    
+    conv['original'] = [truncate_tokens(example) for example in conv['original']]
+    conv['sampled'] = [truncate_tokens(example) for example in conv['sampled']]
     return conv
 
 
@@ -67,7 +79,7 @@ def load_perturbed(filename, n=0, k=0, orig_only=False):
             for i in range(1,k+1)]
 
 
-def write_perturbed(perturbed, outfile):
+def write_perturbed(perturbed, dataset, temp, span, pct):
     """
     Write perturbations to a file, given a list of dictionaries
     with original text, sampled text, and perturbed versions of each.
@@ -78,6 +90,9 @@ def write_perturbed(perturbed, outfile):
     orig_dict = { f'o{i+1}' : col for i, col in enumerate(original_cols)}
     sampled_dict = { f's{i+1}' : col for i, col in enumerate(sampled_cols)}
     df = pd.DataFrame(data={**orig_dict, **sampled_dict})
+    # write to Perturbations folder
+    pct = str(pct).strip('0.')
+    outfile = f'Perturbations/{dataset}_t{temp}_k{len(df.columns)//2}_n{len(df)}_s{span}_p{pct}.csv'
     while True:
         try:
             df.to_csv(outfile, index=False)
@@ -258,7 +273,7 @@ def generate_perturbations(texts, span_length, pct, mask_model, mask_tokenizer, 
     """
     outputs = []
     for i in tqdm.tqdm(range(0, len(texts), chunk_size), desc="Applying perturbations"):
-        outputs.extend(generate_perturbations_(texts[i:i + chunk_size], span_length, pct, mask_model, mask_tokenizer, ceil_pct=ceil_pct))
+        outputs.extend(generate_perturbations_(texts[i:min(i + chunk_size, len(texts))], span_length, pct, mask_model, mask_tokenizer, ceil_pct=ceil_pct))
     return outputs
 
 
@@ -308,21 +323,15 @@ def perturb_texts(data, mask_model, mask_tokenizer, chunk_size=50, perturb_pct=0
 if __name__=='__main__':
     perturb_options = ArgumentParser()
     perturb_options.add_argument('infile', help='where to read candidate passages from')
-    perturb_options.add_argument('-k', '--k_examples', help='num examples to load from infile', type=int)
-    perturb_options.add_argument('-n', '--n_perturbations', help='number of perturbations to perform in experiments', type=int, default=5)
+    perturb_options.add_argument('-k', '--k_examples', help='num examples to load from infile', type=int, default=0)   # 0 is a sentinel meaning 'all'
+    perturb_options.add_argument('-n', '--n_perturbations', help='number of perturbations to perform in experiments', type=int, default=100)
     perturb_options.add_argument('-s', '--span_length', help='span of tokens to mask in candidate passages', type=int, default=2)
     perturb_options.add_argument('-p', '--perturb_pct', help='percentage (as decimal) of each passage to perturb', type=float, default=0.15)
     perturb_options.add_argument('-r', '--n_perturbation_rounds', help='number of times to attempt perturbations', type=int, default=1)
-    perturb_options.add_argument('-w', '--writefile', help='file to write perturbed examples to')
     perturb_options.add_argument('-c', '--chunk_size', help='for GPU optimization!', type=int, default=5)
     perturb_options.add_argument('-o', '--original_perturbations', help='file which contains original perturbations, if only sample perturbations necessary')
 
     args = perturb_options.parse_args()
-
-    data = load_data(args.infile, args.k_examples)
-
-    if args.original_perturbations:
-        original = load_perturbed(args.original_perturbations, orig_only=True)
 
     print('Loading T5-3B mask model and tokenizer...')
     mask_model = transformers.AutoModelForSeq2SeqLM.from_pretrained('t5-3b') # can be cached. 
@@ -334,7 +343,18 @@ if __name__=='__main__':
     print('MOVING MASK MODEL TO GPU...', end='', flush=True)
     mask_model.to(DEVICE)
     print('DONE')
+
+
+    data = load_data(args.infile, mask_tokenizer, args.k_examples)
+
+    original = None
+    if args.original_perturbations:
+        original = load_perturbed(args.original_perturbations, orig_only=True)
+        original = original[:min(len(data), len(original))]   # make sure lengths match up
+
     perturbed = perturb_texts(data, mask_model, mask_tokenizer, args.chunk_size,
-                              args.perturb_pct, args.span_length, args.n_perturbations)
-    writefile = args.writefile
-    write_perturbed(perturbed, writefile)
+                              args.perturb_pct, args.span_length, args.n_perturbations, original)
+    # the following assumes that infile is named according to the convention {dataset}/{dataset}_{temperature}.csv
+    dataset = args.infile[:args.infile.find('/')]
+    temp = args.infile[args.infile.find('_')+1:args.infile.find('.')]
+    write_perturbed(perturbed, dataset, temp, args.span_length, args.perturb_pct)
