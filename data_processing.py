@@ -94,6 +94,16 @@ def process_spaces(story: str):
         '  ', ' ').strip()
 
 
+def replace_original(correct: pd.DataFrame, incorrect: pd.DataFrame):
+    """Emergency function to handle misplaced perturbations."""
+    c = len(incorrect.columns) // 2
+    n = len(incorrect)
+    for i in range(c):
+        incorrect[f'o{i+1}'] = correct[f'o{i+1}'][:n]
+    return incorrect
+    
+
+
 def repair_dataframe(data: pd.DataFrame, temp: float, min_words=200, prompt_msg=''):
     """
     DESC: Repair dataframe that has incomplete responses from ChatGPT.
