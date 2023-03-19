@@ -12,8 +12,8 @@ from argparse import ArgumentParser
 import openai
 import os
 import torch
-from multiprocessing.pool import ThreadPool
 import functools
+from transformers import AutoTokenizer
 
 # housekeeping some global vars
 USAGE = 0
@@ -218,7 +218,7 @@ def strip_text(file, col, strip_msg):
 
 if __name__=='__main__':
     parser = ArgumentParser(prog='process data already retrieved, in different ways')
-    parser.add_argument('task', help='what you want to do', choices=['merge', 'repair', 'strip', 'remove'])
+    parser.add_argument('task', help='what you want to do', choices=['merge', 'repair', 'strip', 'remove', 'truncate'])
     merge = parser.add_argument_group()
     merge.add_argument('--orig_file', help='file with human data')
     merge.add_argument('--orig_cols', help='cols to grab from orig_file', type=str)
@@ -236,6 +236,9 @@ if __name__=='__main__':
     strip.add_argument('--strip_msg', help='text to strip')
     remove = parser.add_argument_group()
     remove.add_argument('--remove_files', help='files with rows to remove', nargs='*')
+    truncate = parser.add_argument_group()
+    truncate.add_argument('--trunc_files', help='files you want to truncate with a tokenizer', nargs='*')
+    truncate.add_argument('--tokenizer', help='what pretrained tokenizer you want to use for truncation')
 
     parser.add_argument('-v', '--verbose', action='store_true', help='print while doing stuff')
     args = parser.parse_args()
@@ -261,4 +264,9 @@ if __name__=='__main__':
     elif args.task == 'remove':
         for file in args.remove_files:
             remove_failed_responses(file)
-
+    
+    elif args.task == 'truncate':
+        for file in args.trunc_files:
+            perturbed = pd.read_csv(file)
+            perturbed = truncate_dataframe(perturbed, AutoTokenizer.from_pretrained(args.tokenizer))
+            perturbed.to_csv(file, index=False)

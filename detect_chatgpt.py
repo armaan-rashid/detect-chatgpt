@@ -76,9 +76,6 @@ def load_hf_models_and_tokenizers(models: str, dataset: str):
     return base_models, base_tokenizers
 
 
-
-
-
 def query_lls(results, openai_models=None, openai_opts=None, base_tokenizers=None, base_models=None):
     """
     DESC: Given passages and their perturbed versions, query log likelihoods for all of them
