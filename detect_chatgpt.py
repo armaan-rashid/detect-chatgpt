@@ -272,7 +272,7 @@ if __name__ == '__main__':
     if args.huggingface_query_models:
         assert args.candidate_file or args.perturbation_file, 'you need to have given a file of passages to query probs.'
         hf_model_names = [model[model.rfind('/') + 1:] for model in args.huggingface_query_models]
-        hf_models, hf_tokenizers = load_hf_models_and_tokenizers(hf_model_names, args.dataset)
+        hf_models, hf_tokenizers = load_hf_models_and_tokenizers(args.huggingface_query_models, args.dataset)
 
     if len(openai_models) > 0 or len(hf_models) > 0:
         all_results = query_lls(perturbed, openai_models, openai_opts=open_ai_hyperparams, base_models=hf_models, base_tokenizers=hf_tokenizers)
