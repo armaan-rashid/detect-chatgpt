@@ -12,7 +12,6 @@ from argparse import ArgumentParser
 import openai
 import os
 import torch
-import functools
 from transformers import AutoTokenizer
 
 # housekeeping some global vars
@@ -58,9 +57,7 @@ def truncate_dataframe(df: pd.DataFrame, tokenizer):
     """
     Truncate tokens for all the entries in a df full of strings.
     """
-    truncate = functools.partial(truncate_tokens, tokenizer=tokenizer)
-    df.apply(lambda series: series.apply(truncate))
-    return df
+    return df.applymap(lambda item: truncate_tokens(item, tokenizer))
 
 def concat_cols(row, cols):
     string = ''
