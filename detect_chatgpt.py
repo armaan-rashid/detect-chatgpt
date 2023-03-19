@@ -12,7 +12,6 @@ import tqdm
 import query_probabilities as qp
 import evaluation as eval
 from perturb import perturb_texts, load_perturbed, write_perturbed
-from matplotlib import pyplot as plt
 from data_processing import load_data
 import os
 import copy
@@ -64,19 +63,13 @@ def load_hf_models_and_tokenizers(models: str, dataset: str):
         if dataset in ['pubmed']:
             optional_tok_kwargs['padding_side'] = 'left'
         base_tokenizer = transformers.AutoTokenizer.from_pretrained(model, **optional_tok_kwargs)
-        try:
-            base_tokenizer.pad_token_id = base_tokenizer.eos_token_id
-        except:
-            base_tokenizer.pad_token_id = [base_tokenizer.eos_token_id]
+        try: base_tokenizer.pad_token_id = base_tokenizer.eos_token_id
+        except: base_tokenizer.pad_token_id = [base_tokenizer.eos_token_id]
         print(f'MOVING HF MODEL {model} AND TOKENIZER TO GPU if possible.')
-        try:
-            base_model.to(DEVICE)
-        except:
-            pass
-        try:
-            base_tokenizer.to(DEVICE)
-        except:
-            pass
+        try: base_model.to(DEVICE)
+        except: pass
+        try: base_tokenizer.to(DEVICE)
+        except: pass
         base_models.append(base_model)
         base_tokenizers.append(base_tokenizer)
 

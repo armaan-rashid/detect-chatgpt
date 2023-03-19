@@ -14,40 +14,12 @@ import torch
 from torch import cuda
 import functools
 from argparse import ArgumentParser
+from data_processing import load_data
 import pandas as pd
 
 
 DEVICE = 'cuda' if cuda.is_available() else 'cpu'
 MASK_PATTERN = re.compile(r"<extra_id_\d+>")
-
-
-def load_data(filename, tokenizer, k=0):
-    """
-    Similar to the one from data_processing,
-    but we truncate in this version so that perturbation
-    happens smoothly.
-    """
-    df = pd.read_csv(filename)
-    assert 'original' in df.columns and 'sampled' in df.columns, 'files need to have original and sampled cols'
-    print(f'Loading data from {filename}.')
-    conv = {'original': df['original'].values.tolist(),
-            'sampled': df['sampled'].values.tolist()}
-    k = min(len(conv['original']), k) if k != 0 else len(conv['original'])
-    # we will truncate with the tokenizer so there aren't any greater-than-max-len sequences!
-    print(f'Verifying that all passages have length less than {tokenizer.model_max_length} tokens.')
-    try: tokenizer.to(DEVICE)
-    except: pass
-    def truncate_tokens(string):    # truncate so there aren't indexing errors during tokenization later
-        tokenized = tokenizer.encode(string)
-        if len(tokenized) > tokenizer.model_max_length:
-            print(f'Truncating an example because it uses too many ({len(tokenized)}) tokens')
-            return tokenizer.decode(tokenized[:tokenizer.model_max_length])
-        return string
-    
-    conv['original'] = [truncate_tokens(example) for example in conv['original'][:k]]
-    conv['sampled'] = [truncate_tokens(example) for example in conv['sampled'][:k]]
-    return conv
-
 
 
 def load_perturbed(filename, n=0, k=0, orig_only=False):

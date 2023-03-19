@@ -11,14 +11,18 @@ import pandas as pd
 from argparse import ArgumentParser
 import openai
 import os
+import torch
+from multiprocessing.pool import ThreadPool
+import functools
 
 # housekeeping some global vars
 USAGE = 0
 FAILSTRING = 'Failed response.'
 SYSTEM = {'role': 'system', 'content': 'You are a helpful assistant.'}   # a default system msg to use for all prompts 
 CONTINUE = {'role': 'user', 'content': 'Please, continue.'}
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-def load_data(filename, k=None):
+def load_data(filename, k=None, tokenizer=None):
     """
     Load k examples of data from file into dict format.
     Expects that the dfs loaded in has 'original, sampled'
@@ -29,11 +33,34 @@ def load_data(filename, k=None):
     print(f'Loading data from {filename}.')
     conv = {'original': df['original'].values.tolist(),
             'sampled': df['sampled'].values.tolist()}
-    if k is None:
-        k = len(conv['original'])
-    conv['original'] = conv['original'][:min(k, len(conv['original']))]
-    conv['sampled'] = conv['sampled'][:min(k, len(conv['sampled']))]
+    k = min(len(conv['original']), k) if k != 0 else len(conv['original'])
+    conv['original'] = conv['original'][:k]
+    conv['sampled'] = conv['sampled'][:k]
+    if tokenizer:
+        print(f'Verifying that all passages have length less than {tokenizer.model_max_length} tokens.')
+        try: tokenizer.to(DEVICE)
+        except: pass
+        conv['original'] = [truncate_tokens(example) for example in conv['original']]
+        conv['sampled'] = [truncate_tokens(example) for example in conv['sampled']]
     return conv
+
+def truncate_tokens(string, tokenizer):
+    """
+    Truncate a string to be the max length of a tokenizer.
+    """    
+    tokenized = tokenizer.encode(string)
+    if len(tokenized) > tokenizer.model_max_length:
+        print(f'Truncating an example because it uses too many ({len(tokenized)}) tokens')
+        return tokenizer.decode(tokenized[:tokenizer.model_max_length])
+    return string
+
+def truncate_dataframe(df: pd.DataFrame, tokenizer):
+    """
+    Truncate tokens for all the entries in a df full of strings.
+    """
+    truncate = functools.partial(truncate_tokens, tokenizer=tokenizer)
+    df.apply(lambda series: series.apply(truncate_tokens))
+    return df
 
 def concat_cols(row, cols):
     string = ''
