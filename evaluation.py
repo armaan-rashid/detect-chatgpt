@@ -3,6 +3,7 @@ Evaluate model predictions and plot results. Code adapted / refactored from
 Mitchell et al's detectGPT implementation.
 """
 import matplotlib.pyplot as plt
+import pandas as pd
 from sklearn.metrics import roc_curve, precision_recall_curve, auc
 
 
@@ -48,12 +49,12 @@ def get_precision_recall_metrics(real_preds, sample_preds):
 
 
 
-def save_roc_curves(experiments, query_model_name, save_dir):
+def save_roc_curves(experiments, save_dir):
     """
     DESC: Graph ROC curves for each experiment. Save them to save_dir.
     """
     # first, clear plt
-    plt.clf()
+    plt.figure()
 
     for experiment, color in zip(experiments, COLORS):
         metrics = experiment["metrics"]
@@ -65,68 +66,69 @@ def save_roc_curves(experiments, query_model_name, save_dir):
     plt.ylim([0.0, 1.05])
     plt.xlabel('False Positive Rate')
     plt.ylabel('True Positive Rate')
-    plt.title(f'ROC Curves ({query_model_name} - T5-3B)')
+    plt.title(f'ROC Curves')
     plt.legend(loc="lower right", fontsize=6)
+    plt.savefig(f"{save_dir}/roc_curves.png")
     plt.show()
-    if save_dir:
-        plt.savefig(f"{save_dir}/roc_curves.png")
 
-def save_ll_histograms(experiments, save_dir):
+
+def save_ll_histograms(results, save_dir):
     """
     DESC: graph log likelihoods for perturbed vs. candidate examples, save to save_dir
     """
     # first, clear plt
     plt.clf()
 
-    for experiment in experiments:
-        try:
-            results = experiment["raw_results"]
-            # plot histogram of sampled/perturbed sampled on left, original/perturbed original on right
-            plt.figure(figsize=(20, 6))
-            plt.subplot(1, 2, 1)
-            plt.hist([r["sampled_ll"] for r in results], alpha=0.5, bins='auto', label='sampled')
-            plt.hist([r["perturbed_sampled_ll"] for r in results], alpha=0.5, bins='auto', label='perturbed sampled')
-            plt.xlabel("log likelihood")
-            plt.ylabel('count')
-            plt.legend(loc='upper right')
-            plt.subplot(1, 2, 2)
-            plt.hist([r["original_ll"] for r in results], alpha=0.5, bins='auto', label='original')
-            plt.hist([r["perturbed_original_ll"] for r in results], alpha=0.5, bins='auto', label='perturbed original')
-            plt.xlabel("log likelihood")
-            plt.ylabel('count')
-            plt.legend(loc='upper right')
-            if save_dir:
-                plt.savefig(f"{save_dir}/ll_histograms_{experiment['name']}.png")
-        except:
-            pass
+    # plot histogram of sampled/perturbed sampled on left, original/perturbed original on right
+    plt.figure(figsize=(20, 6))
+    plt.subplot(1, 2, 1)
+    plt.hist([r["sampled_ll"] for r in results], alpha=0.5, bins='auto', label='sampled')
+    plt.hist([r["perturbed_sampled_ll"] for r in results], alpha=0.5, bins='auto', label='perturbed sampled')
+    plt.xlabel("log likelihood")
+    plt.ylabel('count')
+    plt.legend(loc='upper right')
+    plt.subplot(1, 2, 2)
+    plt.hist([r["original_ll"] for r in results], alpha=0.5, bins='auto', label='original')
+    plt.hist([r["perturbed_original_ll"] for r in results], alpha=0.5, bins='auto', label='perturbed original')
+    plt.xlabel("log likelihood")
+    plt.ylabel('count')
+    plt.legend(loc='upper right')
+    plt.savefig(f"{save_dir}/ll_histograms.png")
+        
 
 
-def save_llr_histograms(experiments, save_dir):
+def save_llr_histograms(results, save_dir):
     """
     DESC: same as save_ll_histograms, but also plot log likelihood RATIOS 
     """
     # first, clear plt
     plt.clf()
 
-    for experiment in experiments:
-        try:
-            results = experiment["raw_results"]
-            # plot histogram of sampled/perturbed sampled on left, original/perturbed original on right
-            plt.figure(figsize=(20, 6))
-            plt.subplot(1, 2, 1)
+    # plot histogram of sampled/perturbed sampled on left, original/perturbed original on right
+    plt.figure(figsize=(20, 6))
+    plt.subplot(1, 2, 1)
 
-            # compute the log likelihood ratio for each result
-            for r in results:
-                r["sampled_llr"] = r["sampled_ll"] - r["perturbed_sampled_ll"]
-                r["original_llr"] = r["original_ll"] - r["perturbed_original_ll"]
-            
-            plt.hist([r["sampled_llr"] for r in results], alpha=0.5, bins='auto', label='sampled')
-            plt.hist([r["original_llr"] for r in results], alpha=0.5, bins='auto', label='original')
-            plt.xlabel("log likelihood ratio")
-            plt.ylabel('count')
-            plt.legend(loc='upper right')
-            if save_dir:
-                plt.savefig(f"{save_dir}/llr_histograms_{experiment['name']}.png")
-        except:
-            pass
+    # compute the log likelihood ratio for each result
+    for r in results:
+        r["sampled_llr"] = r["sampled_ll"] - r["perturbed_sampled_ll"]
+        r["original_llr"] = r["original_ll"] - r["perturbed_original_ll"]
+    
+    plt.hist([r["sampled_llr"] for r in results], alpha=0.5, bins='auto', label='sampled')
+    plt.hist([r["original_llr"] for r in results], alpha=0.5, bins='auto', label='original')
+    plt.xlabel("log likelihood ratio")
+    plt.ylabel('count')
+    plt.legend(loc='upper right')
+    plt.savefig(f"{save_dir}/llr_histograms.png")
+
+
+def save_scores(experiments, save_dir):
+    """
+    Save AUROC and PRAUC scores for discrepancy and z-score criteria.
+    Assumes that the z-score experiment is the first one in experiments. 
+    """
+    scores = pd.DataFrame(data={'AUROC': [experiment['metrics']['roc_auc'] for experiment in experiments],
+                                'PRAUC': [experiment['pr_metrics']['pr_auc'] for experiment in experiments]},
+                          index=['z','d'])
+    scores.to_csv(f'{save_dir}/scores.csv')
+    return scores
 

@@ -10,12 +10,13 @@ import torch
 import numpy as np
 import tqdm
 import query_probabilities as qp
-import evaluation 
+import evaluation as eval
 from perturb import perturb_texts, load_perturbed, write_perturbed
 from matplotlib import pyplot as plt
 from data_processing import load_data
 import os
 import copy
+from itertools import chain
 
 DEVICE = 'cuda' if cuda.is_available() else 'cpu'
 MASK_FILLING_MODEL = "t5-3b"    # use for all experiments
@@ -139,7 +140,7 @@ def query_lls(results, openai_models=None, openai_opts=None, base_tokenizers=Non
     return all_results
 
 
-def run_perturbation_experiment(all_results, criterion, hyperparameters, dataset):
+def run_perturbation_experiment(all_results, criterion, hyperparameters, dataset, temp):
     """
     DESC: Given results of perturbations + probabilities, make probabilistic classification predictions for
     each candidate passage and then evaluate them!
@@ -162,11 +163,9 @@ def run_perturbation_experiment(all_results, criterion, hyperparameters, dataset
         query_model_predictions = {'real': [], 'samples': []}
         for res in query_model_results:
             if criterion == 'd':
-                print(f'Making predictions for difference criteria.')
                 query_model_predictions['real'].append(res['original_ll'] - res['perturbed_original_ll'])
                 query_model_predictions['samples'].append(res['sampled_ll'] - res['perturbed_sampled_ll'])
             elif criterion == 'z':
-                print(f'Making predictions for z-score criteria.')
                 if res['perturbed_original_ll_std'] == 0:
                     res['perturbed_original_ll_std'] = 1
                     print("WARNING: std of perturbed original is 0, setting to 1")
@@ -195,14 +194,15 @@ def run_perturbation_experiment(all_results, criterion, hyperparameters, dataset
     final_composed_predictions['real'] = [x / len(all_predictions) for x in final_composed_predictions['real']]
     final_composed_predictions['samples'] = [x / len(all_predictions) for x in final_composed_predictions['samples']]
 
-    fpr, tpr, roc_auc = evaluation.get_roc_metrics(final_composed_predictions['real'], final_composed_predictions['samples'])
-    p, r, pr_auc = evaluation.get_precision_recall_metrics(final_composed_predictions['real'], final_composed_predictions['samples'])
-    name = f'{dataset}_{"difference" if criterion == "d" else "z-score"}_{hyperparameters["n_perturbations"]}_{hyperparameters["perturb_pct"]}.'
+    fpr, tpr, roc_auc = eval.get_roc_metrics(final_composed_predictions['real'], final_composed_predictions['samples'])
+    p, r, pr_auc = eval.get_precision_recall_metrics(final_composed_predictions['real'], final_composed_predictions['samples'])
+    name = f'{dataset}_t{temp}_n{hyperparameters["n_perturbations"]}_{"discrepancy" if criterion == "d" else "z-score"}'
     print(f"{name} ROC AUC: {roc_auc}, PR AUC: {pr_auc}")
     return {
         'name': name,
         'predictions': final_composed_predictions,
         'info': hyperparameters,
+        'criterion': criterion,
         'raw_results': all_results,
         'metrics': {
             'roc_auc': roc_auc,
@@ -220,17 +220,16 @@ def run_perturbation_experiment(all_results, criterion, hyperparameters, dataset
 if __name__ == '__main__':
     parser = ArgumentParser(prog='run detectChatGPT')
     parser.add_argument('dataset', help='name of dataset')
+    parser.add_argument('temperature', help='temperature of dataset', choices=['00', '50', '100'])
     parser.add_argument('--candidate_file', help='csv files: where to read candidate_files from for perturbation')
     parser.add_argument('--perturbation_file', help='csv files to read perturbations from')
-    parser.add_argument('--ll_files', help='if lls have already been queried, list the model name first then filename, as \
-                        many pairs as is necessary', nargs='*')
+    parser.add_argument('--ll_files', help='if lls have already been queried, put the filenames here', nargs='*')
     parser.add_argument('--openai_query_models', help='openai models to be used for probability querying', nargs="*", default=[])
     parser.add_argument('--huggingface_query_models', help='huggingface models to be used for probability querying', nargs="*", default=[])
-    parser.add_argument('-d', '--directory', help='directory to save plots, should contain info abt query models and dataset')
-    parser.add_argument('-k', '--k_examples', help='load k examples from file', type=int)
+    parser.add_argument('-k', '--k_examples', help='load k examples from file', type=int, default=0)
 
     perturb_options = parser.add_argument_group()
-    perturb_options.add_argument('-n', '--n_perturbations', help='number of perturbations to perform in experiments', type=int, default=5)
+    perturb_options.add_argument('-n', '--n_perturbations', help='number of perturbations to perform in experiments', type=int, default=100)
     perturb_options.add_argument('-s', '--span_length', help='span of tokens to mask in candidate passages', type=int, default=2)
     perturb_options.add_argument('-p', '--perturb_pct', help='percentage (as decimal) of each passage to perturb', type=float, default=0.15)
     perturb_options.add_argument('-r', '--n_perturbation_rounds', help='number of times to attempt perturbations', type=int, default=1)
@@ -240,7 +239,6 @@ if __name__ == '__main__':
     open_ai_opts.add_argument('-l', '--logprobs', help='how many tokens to include logprobs for', choices=[0,1,2,3,4,5], default=0)
     open_ai_opts.add_argument('-e', '--echo', help='echo both prompt and completion', action='store_true')
     open_ai_opts.add_argument('-m', '--max_tokens', help='max_tokens to be produced in a response', type=int, default=0)
-    open_ai_opts.add_argument('-t', '--temperature', help='randomness to use in generation', type=float, default=0.0)
     open_ai_opts.add_argument('-c', '--completions', help='num completions to gen for each prompt', type=int, default=1)
 
     args = parser.parse_args()
@@ -251,56 +249,63 @@ if __name__ == '__main__':
         'span_length': args.span_length,
         'perturb_pct': args.perturb_pct,
         'n_perturbation_rounds': args.n_perturbation_rounds,
+        'temp': args.temperature
     }
 
     open_ai_hyperparams = {
         'logprobs': args.logprobs,
         'echo': args.echo,
         'max_tokens': args.max_tokens,
-        'temperature': args.temperature,
         'n': args.completions,
     }
 
-    # core model pipeline: perturb, query probabilities, make predictions
-
+    # core model pipeline: perturb if needed, query probabilities, make predictions
 
     if args.candidate_file:   # if only candidate passages passed in, generate perturbations!  
         data = load_data(args.candidate_file, args.k_examples)
         mask_tokenizer, mask_model = load_mask_model(MASK_FILLING_MODEL)
         perturbed = perturb_texts(data, mask_tokenizer, mask_model, **hyperparameters)
-
         if args.writefile:  # write the perturbations if file specified
             write_perturbed(perturbed, args.writefile)
 
     elif args.perturbation_file:
         perturbed = load_perturbed(args.perturbation_file, args.n_perturbations, args.k_examples)
 
-    infile = args.candidate_file if args.candidate_file else args.perturbation_file
-    
+    all_results = []
+
     openai_models = []
     if args.openai_query_models:
-        assert infile, 'you need to have given a file of passages to query probs.'
+        assert args.candidate_file or args.perturbation_file, 'you need to have given a file of passages to query probs.'
         openai_models = args.openai_query_models
+
     hf_model_names, hf_models, hf_tokenizers = [], [], []
     if args.huggingface_query_models:
-        assert infile, 'you need to have given a file of passages to query probs.'
+        assert args.candidate_file or args.perturbation_file, 'you need to have given a file of passages to query probs.'
         hf_model_names = args.huggingface_query_models
         hf_models, hf_tokenizers = load_hf_models_and_tokenizers(hf_model_names, args.dataset)
+
     if len(openai_models) > 0 or len(hf_models) > 0:
         all_results = query_lls(perturbed, openai_models, openai_opts=open_ai_hyperparams, base_models=hf_models, base_tokenizers=hf_tokenizers)
         for results, model in zip(all_results, openai_models + hf_model_names):
-            qp.write_lls(results, model, infile)
+            qp.write_lls(results, model, args.dataset, args.temperature)
+
     if args.ll_files:   # add probability results that are already done 
+        file_models = [arg[arg.rfind('/') + 1:arg.find('.csv')] for arg in args.ll_files]
+        openai_models.extend([model for model in file_models if model in ['babbage', 'curie', 'ada', 'davinci']])
+        hf_model_names.extend([model for model in file_models if model in ['gpt-neo-2.7B', 'gpt2', 'gpt-j-6B', 'opt-2.7b']])
         all_results.extend([qp.read_lls(ll_file, args.n_perturbations, args.k_examples) for ll_file in args.ll_files])
-    experiments = [run_perturbation_experiment(all_results, criterion, hyperparameters, args.dataset) for criterion in ['z', 'd']]
+    
+    experiments = [run_perturbation_experiment(all_results, criterion, hyperparameters, args.dataset, args.temperature) for criterion in ['z', 'd']]
 
     # graph results, making sure the directory exists
-    DIR = args.directory
-    # within DIR save inside a directory with hyperparameter information
-    save_dir = f'n={hyperparameters["n_perturbations"]}_s={hyperparameters["span_length"]}_p={hyperparameters["perturb_pct"]}'
-    if not os.path.exists(f'{DIR}/{save_dir}'):
-        os.makedirs(f'{DIR}/{save_dir}')
-    plt.figure()
-    evaluation.save_roc_curves(experiments, args.openai_query_models + args.huggingface_query_models, f'{DIR}/{save_dir}')
-    evaluation.save_ll_histograms(experiments, f'{DIR}/{save_dir}')
-    evaluation.save_llr_histograms(experiments, f'{DIR}/{save_dir}')
+    save_dir = f'Results/{args.dataset}_t{args.temperature}_n{args.n_perturbations}/'
+    for model in chain(openai_models, hf_model_names):
+        save_dir += f'{model}_'
+    save_dir = save_dir[:-1]    # remove trailing underscore!
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    eval.save_roc_curves(experiments, save_dir)
+    if len(openai_models + hf_model_names) == 1: 
+        eval.save_ll_histograms(experiments[0]["raw_results"][0], save_dir)
+        eval.save_llr_histograms(experiments[0]["raw_results"][0], save_dir)
+    eval.save_scores(experiments, save_dir)

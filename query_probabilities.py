@@ -16,29 +16,28 @@ API_TOKEN_COUNTER = 0
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 GPT2_TOKENIZER = transformers.GPT2Tokenizer.from_pretrained('gpt2')
 
-def write_lls(results, model, datafile): 
+def write_lls(results, model: str, dataset: str, temp: str): 
     """
-    DESC: write log-likelihoods to a dataFrame and an outfile. To avoid money-wastage. OpenAI is expensive!
+    DESC: write log-likelihoods to a dataFrame and an outfile. To avoid money-wastage!
     PARAMS:
     results: List[dict]. Each dict has many keys; the relevant keys are: 
     {
         'original_ll', 'sampled_ll': lls of original, sampled passage under query models
         'all_perturbed_sampled_ll','all_perturbed_original_ll': all lls of all perturbed passages
     }
-    model: name of openai model that generated these results
+    model: name of model that generated these results
     """
-    last_slash = model.rfind('/')
-    if last_slash != -1:
-        model = model[last_slash+1:]
-    last_slash = datafile.rfind('/')
-    if last_slash != -1:
-        datafile = datafile[last_slash+1:]
+    model = model.strip('/')    # avoid accidental directories
+
     original_lls = [[res['original_ll']] + res['all_perturbed_original_ll'] for res in results]
     sampled_lls = [[res['sampled_ll']] + res['all_perturbed_sampled_ll'] for res in results]
     orig_dict = { f'o{i+1}' : ll for i, ll in enumerate(original_lls)}
     sampled_dict = { f's{i+1}' : ll for i, ll in enumerate(sampled_lls)}
     df = pd.DataFrame(data={**orig_dict, **sampled_dict})
-    df.to_csv(f'openai_lls/{model}_{datafile}.csv', index=False)
+    save_dir = f'lls/{dataset}_t{temp}'
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    df.to_csv(f'{save_dir}/{model}.csv', index=False)
     return df
 
 def read_lls(filename, n=0, k=0):
@@ -60,7 +59,6 @@ def read_lls(filename, n=0, k=0):
 
 def get_ll(text, openai_model=None, base_tokenizer=None, base_model=None, **open_ai_opts):
     """
-    TODO: edit this function to query multiple models
     DESC: The essence of detection: given a candidate text, puts the text
     through a model and has the model assess what its own probability of
     outputting that text (i.e. its loss) is. 
