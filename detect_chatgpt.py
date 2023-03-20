@@ -15,7 +15,8 @@ from perturb import perturb_texts, load_perturbed, write_perturbed
 from data_processing import load_data
 import os
 import copy
-from itertools import chain
+import itertools
+from glob import glob
 
 DEVICE = 'cuda' if cuda.is_available() else 'cpu'
 MASK_FILLING_MODEL = "t5-3b"    # use for all experiments
@@ -207,16 +208,47 @@ def run_perturbation_experiment(all_results, criterion, hyperparameters, dataset
         'loss': 1 - pr_auc,
     }
 
+
+def evaluate_and_graph(experiments, dataset, temp, n_perturbed, model_list, adversarial=False):
+    """
+    DESC: evaluate the experiments and graph and save everything!
+    PARAMS: 
+    experiments: predictions of perturbation results
+    dataset, temp, n_perturbed: dataset used, its temperature and number of perturbations used
+    model_list: list of models involved!
+    """
+    print(f'The results for the models in {model_list} are:')
+    save_dir = f'Results/{dataset}_t{temp}_n{n_perturbed}/'
+    if adversarial:
+        save_dir = f'Results/adversarial/{dataset}_t{temp}_n{n_perturbed}/'
+    for model in model_list:
+        save_dir += f'{model}_'
+    save_dir = save_dir[:-1]    # remove trailing underscore!
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    eval.save_roc_curves(experiments, save_dir)
+    if len(openai_models + hf_model_names) == 1: 
+        eval.save_ll_histograms(experiments[0]["raw_results"][0], save_dir)
+        eval.save_llr_histograms(experiments[0]["raw_results"][0], save_dir)
+    eval.save_scores(experiments, save_dir)
+
+
 if __name__ == '__main__':
     parser = ArgumentParser(prog='run detectChatGPT')
     parser.add_argument('dataset', help='name of dataset')
     parser.add_argument('temperature', help='temperature of dataset', choices=['00', '50', '100'])
-    parser.add_argument('--candidate_file', help='csv files: where to read candidate_files from for perturbation')
-    parser.add_argument('--perturbation_file', help='csv files to read perturbations from')
-    parser.add_argument('--ll_files', help='if lls have already been queried, put the filenames here', nargs='*')
     parser.add_argument('--openai_query_models', help='openai models to be used for probability querying', nargs="*", default=[])
     parser.add_argument('--huggingface_query_models', help='huggingface models to be used for probability querying', nargs="*", default=[])
     parser.add_argument('-k', '--k_examples', help='load k examples from file', type=int, default=0)
+    parser.add_argument('--combine', action='store_true', help='conduct experiments on all combinations of models passed in')
+    parser.add_argument('-a', '--adversarial', action='store_true', help='run adversarial experiment. only works if args.ll_files passed in!')
+
+
+    inputs = parser.add_mutually_exclusive_group(required=True)
+    inputs.add_argument('--candidate_file', help='csv files: where to read candidate_files from for perturbation')
+    inputs.add_argument('--perturbation_file', help='csv files to read perturbations from')
+    inputs.add_argument('--ll_files', help='if lls have already been queried, put the filenames here. DO NOT USE THIS IN COMBINATION \
+                                            with candidate_file or perturbation_file.', nargs='*')
 
     perturb_options = parser.add_argument_group()
     perturb_options.add_argument('-n', '--n_perturbations', help='number of perturbations to perform in experiments', type=int, default=100)
@@ -279,23 +311,22 @@ if __name__ == '__main__':
         for results, model in zip(all_results, openai_models + hf_model_names):
             qp.write_lls(results, model, args.dataset, args.temperature)
 
-    if args.ll_files:   # add probability results that are already done 
-        file_models = [arg[arg.rfind('/') + 1:arg.find('.csv')] for arg in args.ll_files]
-        openai_models.extend([model for model in file_models if model in ['babbage', 'curie', 'ada', 'davinci']])
-        hf_model_names.extend([model for model in file_models if model in ['gpt-neo-2.7B', 'gpt2', 'gpt-j-6B', 'opt-2.7b']])
-        all_results.extend([qp.read_lls(ll_file, args.n_perturbations, args.k_examples) for ll_file in args.ll_files])
+    file_models = []
+    if args.ll_files:   # probability results that are already done 
+        files = glob(args.ll_files) if '*' in args.ll_files else args.ll_files
+        file_models = [file[file.rfind('/') + 1:file.find('.csv')] for file in files]
+        all_results = [qp.read_lls(ll_file, args.n_perturbations, args.k_examples, args.adversarial) for ll_file in files]
     
-    experiments = [run_perturbation_experiment(all_results, criterion, hyperparameters, args.dataset, args.temperature) for criterion in ['z', 'd']]
+    all_models = openai_models + hf_model_names if not args.ll_files else file_models
 
-    # graph results, making sure the directory exists
-    save_dir = f'Results/{args.dataset}_t{args.temperature}_n{args.n_perturbations}/'
-    for model in chain(openai_models, hf_model_names):
-        save_dir += f'{model}_'
-    save_dir = save_dir[:-1]    # remove trailing underscore!
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-    eval.save_roc_curves(experiments, save_dir)
-    if len(openai_models + hf_model_names) == 1: 
-        eval.save_ll_histograms(experiments[0]["raw_results"][0], save_dir)
-        eval.save_llr_histograms(experiments[0]["raw_results"][0], save_dir)
-    eval.save_scores(experiments, save_dir)
+    if not args.combine:
+        experiments = [run_perturbation_experiment(all_results, criterion, hyperparameters, args.dataset, args.temperature) for criterion in ['z', 'd']]
+        evaluate_and_graph(experiments, args.dataset, args.temperature, args.n_perturbations, all_models)
+    
+    if args.combine:
+        for choices in range(1, len(all_models) + 1):
+            for combo in itertools.combinations(zip(all_models, all_results, strict=True), choices):
+                models, results = zip(*combo)
+                models, results = list(models), list(results)
+                experiments = [run_perturbation_experiment(results, criterion, hyperparameters, args.dataset, args.temperature) for criterion in ['z','d']]
+                evaluate_and_graph(experiments, args.dataset, args.temperature, args.n_perturbations, models, args.adversarial)

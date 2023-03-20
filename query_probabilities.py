@@ -40,19 +40,37 @@ def write_lls(results, model: str, dataset: str, temp: str):
     df.to_csv(f'{save_dir}/{model}.csv', index=False)
     return df
 
-def read_lls(filename, n=0, k=0):
+def read_lls(filename, n=0, k=0, adversary=False):
     """
-    TODO: make this adversarial
     DESC: read in lls from a file formatted by write_lls
+    PARAMS: 
+    n, k indicate how many perturbations and how many candidates to read in, respectively
+    if adversary is true, choose a random perturbation to treat as a candidate passage
     """
     lls = pd.read_csv(filename)
     c = len(lls.columns) // 2  # number of candidate passages
     k = min(c, k) if k != 0 else c
     n = min(n, len(lls) - 1) if n != 0 else len(lls) - 1
+    if adversary:   # pick one of the perturbations to use as the 'candidate' passage
+        choice = np.random.choice(n)
+        results = [{
+            'original_ll': lls[f'o{i}'][choice + 1],
+            'sampled_ll': lls[f's{i}'][choice + 1],
+            'all_perturbed_original_ll': lls[f'o{i}'][:choice + 1].values.tolist() + lls[f'o{i}'][min(len(lls[f'o{i}']), choice + 2):].values.tolist(),
+            'all_perturbed_sampled_ll': lls[f's{i}'][:choice + 1].values.tolist() + lls[f's{i}'][min(len(lls[f's{i}']), choice + 2):].values.tolist() 
+        } for i in range(1,k+1)]
+        for i in range(1, k+1):
+            results[i-1].update({
+                "perturbed_sampled_ll": np.mean(results[i-1]['all_perturbed_sampled_ll']),
+                "perturbed_original_ll": np.mean(results[i-1]['all_perturbed_original_ll']),
+                "perturbed_sampled_ll_std": np.std(results[i-1]['all_perturbed_sampled_ll']) if n > 1 else 1,
+                "perturbed_original_ll_std": np.std(results[i-1]['all_perturbed_original_ll']) if n > 1 else 1
+            })
+        return results
     return [{'original_ll': lls[f'o{i}'][0],
             'sampled_ll': lls[f's{i}'][0],
-            'all_perturbed_original_ll': lls[f'o{i}'][1:n+1],
-            'all_perturbed_sampled_ll': lls[f's{i}'][1:n+1],
+            'all_perturbed_original_ll': lls[f'o{i}'][1:n+1].values.tolist(),
+            'all_perturbed_sampled_ll': lls[f's{i}'][1:n+1].values.tolist(),
             "perturbed_sampled_ll": np.mean(lls[f's{i}'][1:n+1]),
             "perturbed_original_ll": np.mean(lls[f'o{i}'][1:n+1]),
             "perturbed_sampled_ll_std": np.std(lls[f's{i}'][1:n+1]) if n > 1 else 1,
