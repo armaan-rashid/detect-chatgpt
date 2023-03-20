@@ -227,7 +227,7 @@ def evaluate_and_graph(experiments, dataset, temp, n_perturbed, model_list, adve
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     eval.save_roc_curves(experiments, save_dir)
-    if len(openai_models + hf_model_names) == 1: 
+    if len(model_list) == 1: 
         eval.save_ll_histograms(experiments[0]["raw_results"][0], save_dir)
         eval.save_llr_histograms(experiments[0]["raw_results"][0], save_dir)
     eval.save_scores(experiments, save_dir)

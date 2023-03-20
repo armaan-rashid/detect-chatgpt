@@ -51,20 +51,20 @@ def read_lls(filename, n=0, k=0, adversary=False):
     c = len(lls.columns) // 2  # number of candidate passages
     k = min(c, k) if k != 0 else c
     n = min(n, len(lls) - 1) if n != 0 else len(lls) - 1
-    if adversary:   # pick one of the perturbations to use as the 'candidate' passage
+    if adversary:   # pick one of the perturbations to use as the 'candidate' sampled passage
         choice = np.random.choice(n)
         results = [{
-            'original_ll': lls[f'o{i}'][choice + 1],
+            'original_ll': lls[f'o{i}'][0],
             'sampled_ll': lls[f's{i}'][choice + 1],
-            'all_perturbed_original_ll': lls[f'o{i}'][:choice + 1].values.tolist() + lls[f'o{i}'][min(len(lls[f'o{i}']), choice + 2):].values.tolist(),
+            'all_perturbed_original_ll': lls[f'o{i}'][1:n+1].values.tolist(),
+            "perturbed_original_ll": np.mean(lls[f'o{i}'][1:n+1]),
+            "perturbed_original_ll_std": np.std(lls[f'o{i}'][1:n+1]) if n > 1 else 1,
             'all_perturbed_sampled_ll': lls[f's{i}'][:choice + 1].values.tolist() + lls[f's{i}'][min(len(lls[f's{i}']), choice + 2):].values.tolist() 
         } for i in range(1,k+1)]
         for i in range(1, k+1):
             results[i-1].update({
                 "perturbed_sampled_ll": np.mean(results[i-1]['all_perturbed_sampled_ll']),
-                "perturbed_original_ll": np.mean(results[i-1]['all_perturbed_original_ll']),
                 "perturbed_sampled_ll_std": np.std(results[i-1]['all_perturbed_sampled_ll']) if n > 1 else 1,
-                "perturbed_original_ll_std": np.std(results[i-1]['all_perturbed_original_ll']) if n > 1 else 1
             })
         return results
     return [{'original_ll': lls[f'o{i}'][0],
