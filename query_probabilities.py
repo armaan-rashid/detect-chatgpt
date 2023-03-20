@@ -42,6 +42,7 @@ def write_lls(results, model: str, dataset: str, temp: str):
 
 def read_lls(filename, n=0, k=0):
     """
+    TODO: make this adversarial
     DESC: read in lls from a file formatted by write_lls
     """
     lls = pd.read_csv(filename)
