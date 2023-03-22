@@ -1,4 +1,4 @@
-# CS224N-final-project
+# DetectChatGPT
 This repo contains the code and experimental results of Armaan Rashid and Julia Park's final project for CS224N winter 2023, DetectChatGPT.
 
 Much of the code here is a heavily adapted and refactored version of Eric Mitchell's original DetectGPT @ https://github.com/eric-mitchell/detect-gpt. If you want 
