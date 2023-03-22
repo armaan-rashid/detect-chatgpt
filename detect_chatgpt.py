@@ -1,5 +1,5 @@
 """
-Project model. Again, some of the funcs adapted from
+Project model. Again, many of the funcs adapted from
 https://github.com/eric-mitchell/detect-gpt and noted as such.
 """
 

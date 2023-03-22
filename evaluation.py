@@ -1,5 +1,5 @@
 """
-Evaluate model predictions and plot results. Code adapted / refactored from
+Evaluate model predictions and plot results. Code adapted from
 Mitchell et al's detectGPT implementation.
 """
 import matplotlib.pyplot as plt
@@ -7,9 +7,32 @@ import pandas as pd
 from sklearn.metrics import roc_curve, precision_recall_curve, auc
 
 
+MODELS = ['gpt-j-6B', 'gpt-neo-2.7B', 'gpt2', 'opt-2.7b']
+
+TEMPERATURES = ['00', '50', '100']
+
 COLORS = ["#0072B2", "#009E73", "#D55E00", "#CC79A7", "#F0E442",
             "#56B4E9", "#E69F00", "#000000", "#0072B2", "#009E73",
             "#D55E00", "#CC79A7", "#F0E442", "#56B4E9", "#E69F00"]
+
+
+def plot_against_temperature(dataset):
+    with plt.ion():
+        plt.figure()
+        x = ['0.0', '0.5', '1.0']
+        for model, color in zip(MODELS, COLORS):
+            dfs = [pd.read_csv(f'Results/{dataset}_t{temp}_n100/{model}/scores.csv', index_col=0) for temp in TEMPERATURES]
+            y = [df['AUROC']['z'] for df in dfs]
+            plt.plot(x, y, color=color, label=model)
+        plt.legend(loc='upper right')
+        plt.xlabel('Temperature')
+        plt.ylabel('AUROC')
+        dataname = 'XSum' if dataset == 'xsum' else 'WritingPrompts'
+        plt.title(f'Temperature vs. AUROC over {dataname} Dataset')
+        plt.savefig(f'{dataset}_vs_temp.pdf')
+        plt.clf()
+
+
 
 def get_roc_metrics(real_preds, sample_preds):
     """
@@ -93,7 +116,7 @@ def save_ll_histograms(results, save_dir):
     plt.xlabel("log likelihood")
     plt.ylabel('count')
     plt.legend(loc='upper right')
-    plt.savefig(f"{save_dir}/ll_histograms.png")
+    plt.savefig(f"{save_dir}/ll_histograms.pdf")
         
 
 
@@ -118,7 +141,7 @@ def save_llr_histograms(results, save_dir):
     plt.xlabel("log likelihood ratio")
     plt.ylabel('count')
     plt.legend(loc='upper right')
-    plt.savefig(f"{save_dir}/llr_histograms.png")
+    plt.savefig(f"{save_dir}/llr_histograms.pdf")
 
 
 def save_scores(experiments, save_dir):

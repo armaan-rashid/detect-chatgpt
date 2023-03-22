@@ -3,7 +3,7 @@ This file contains some basic data processing utility functions.
 Can be run as a script to either repair unfinished data, merge data
 or load data from files into the main ChatGPT script. 
 Some of these functions are from Mitchell et al.'s 
-detectGPT and noted as such. Their original code can be found here:
+detectGPT. Their original code can be found here:
 https://github.com/eric-mitchell/detect-gpt
 """
 
